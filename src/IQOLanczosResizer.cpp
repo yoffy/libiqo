@@ -212,7 +212,8 @@ namespace iqo {
 
     private:
         void resizeX(const uint8_t * src, float * dst);
-        void resizeY(const float * src, intptr_t dstSt, uint8_t * dst);
+        void resizeYside(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst);
+        void resizeYmain(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst);
 
         intptr_t m_SrcW;
         intptr_t m_SrcH;
@@ -310,47 +311,124 @@ namespace iqo {
 
         // resize
         for ( intptr_t y = 0; y < m_SrcH; ++y ) {
+            // horizontal
             resizeX(&src[srcSt * y], &tmp[dstSt * y]);
         }
         if ( m_SrcH != m_DstH ) {
-            //! @todo col major
-            for ( intptr_t x = 0; x < m_DstW; ++x ) {
-                resizeY(&tmp[x], dstSt, &dst[x]);
+            // vertical
+            intptr_t numCoefsOn2 = m_NumCoefsY / 2;
+            // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstH / double(m_SrcH))
+            intptr_t mainBegin = ((numCoefsOn2 - 1) * m_DstH + m_SrcH-1) / m_SrcH;
+            intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcH - numCoefsOn2) * m_DstH / m_SrcH);
+
+            for ( intptr_t dstY = 0; dstY < mainBegin; ++dstY ) {
+                resizeYside(&tmp[0], dstY, dstSt, &dst[0]);
+            }
+            for ( intptr_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
+                resizeYmain(&tmp[0], dstY, dstSt, &dst[0]);
+            }
+            for ( intptr_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
+                resizeYside(&tmp[0], dstY, dstSt, &dst[0]);
             }
         }
     }
 
     void LanczosResizer::Impl::resizeX(const uint8_t * src, float * dst)
     {
-        intptr_t numCoefsOn2 = m_NumCoefsX / 2 - 1;
+        intptr_t numCoefsOn2 = m_NumCoefsX / 2;
         const float * tablesX = &m_TablesX[0];
         const float * sumCoefs = &m_SumsX[0];
-        intptr_t tail = m_SrcW - 1;
+        // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
+        intptr_t mainBegin = ((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW;
+        intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcW - numCoefsOn2) * m_DstW / m_SrcW);
 
-        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
+        // before main
+        for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
             //       srcOX = floor(dstX / scale)
-            intptr_t srcOX = dstX * m_SrcW / m_DstW;
+            intptr_t srcOX = dstX * m_SrcW / m_DstW + 1;
+            intptr_t iTable = dstX % m_NumTablesX;
+            const float * coefs = &tablesX[iTable * m_NumCoefsX];
+            float sum = 0;
+            float deno = 0;
+
+            for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+                intptr_t srcX = srcOX - numCoefsOn2 + i;
+                if ( 0 <= srcX && srcX < m_SrcW ) {
+                    sum += src[srcX] * coefs[i];
+                    deno += coefs[i];
+                }
+            }
+
+            dst[dstX] = sum / deno;
+        }
+
+        for ( intptr_t dstX = mainBegin; dstX < mainEnd; ++dstX ) {
+            //       srcOX = floor(dstX / scale)
+            intptr_t srcOX = dstX * m_SrcW / m_DstW + 1;
             intptr_t iTable = dstX % m_NumTablesX;
             const float * coefs = &tablesX[iTable * m_NumCoefsX];
             float sum = 0;
 
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
-                sum += src[clamp<intptr_t>(0, tail, srcX)] * coefs[i];
+                sum += src[srcX] * coefs[i];
             }
 
             dst[dstX] = sum / sumCoefs[iTable];
         }
+
+        // after main
+        for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
+            //       srcOX = floor(dstX / scale)
+            intptr_t srcOX = dstX * m_SrcW / m_DstW + 1;
+            intptr_t iTable = dstX % m_NumTablesX;
+            const float * coefs = &tablesX[iTable * m_NumCoefsX];
+            float sum = 0;
+            float deno = 0;
+
+            for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+                intptr_t srcX = srcOX - numCoefsOn2 + i;
+                if ( 0 <= srcX && srcX < m_SrcW ) {
+                    sum += src[srcX] * coefs[i];
+                    deno += coefs[i];
+                }
+            }
+
+            dst[dstX] = sum / deno;
+        }
     }
 
-    void LanczosResizer::Impl::resizeY(const float * src, intptr_t dstSt, uint8_t * dst)
+    void LanczosResizer::Impl::resizeYside(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst)
+    {
+        intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
+        const float * tablesY = &m_TablesY[0];
+        intptr_t tail = m_SrcH - 1;
+
+        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
+            //       srcOY = floor(dstY / scale)
+            intptr_t srcOY = dstY * m_SrcH / m_DstH;
+            intptr_t iTable = dstY % m_NumTablesY;
+            const float * coefs = &tablesY[iTable * m_NumCoefsY];
+            float sum = 0;
+            float deno = 0;
+
+            for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
+                intptr_t srcY = srcOY - numCoefsOn2 + i;
+                sum += src[dstX + dstSt * clamp<intptr_t>(0, tail, srcY)] * coefs[i];
+                deno += coefs[i];
+            }
+
+            dst[dstX + dstSt * dstY] = std::max(0, std::min(255, int(round(sum / deno))));
+        }
+    }
+
+    void LanczosResizer::Impl::resizeYmain(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
         const float * tablesY = &m_TablesY[0];
         const float * sumCoefs = &m_SumsY[0];
-        intptr_t tail = m_SrcH - 1;
 
-        for ( intptr_t dstY = 0; dstY < m_DstH; ++dstY ) {
+        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
             //       srcOY = floor(dstY / scale)
             intptr_t srcOY = dstY * m_SrcH / m_DstH;
             intptr_t iTable = dstY % m_NumTablesY;
@@ -359,10 +437,10 @@ namespace iqo {
 
             for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                sum += src[dstSt * clamp<intptr_t>(0, tail, srcY)] * coefs[i];
+                sum += src[dstX + dstSt * srcY] * coefs[i];
             }
 
-            dst[dstSt * dstY] = std::max(0, std::min(255, int(round(sum / sumCoefs[iTable]))));
+            dst[dstX + dstSt * dstY] = std::max(0, std::min(255, int(round(sum / sumCoefs[iTable]))));
         }
     }
 
