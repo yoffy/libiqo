@@ -175,7 +175,7 @@ namespace {
     template<typename T>
     T round(T x)
     {
-        return x + T(0.5);
+        return std::floor(x + T(0.5));
     }
 
     template<typename T>
@@ -212,8 +212,8 @@ namespace iqo {
 
     private:
         void resizeX(const uint8_t * src, float * dst);
-        void resizeYside(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst);
-        void resizeYmain(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst);
+        void resizeYside(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst, float * nume, float * deno);
+        void resizeYmain(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst, float * nume);
 
         intptr_t m_SrcW;
         intptr_t m_SrcH;
@@ -305,9 +305,11 @@ namespace iqo {
     void LanczosResizer::Impl::resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * dst)
     {
         // allocate workspace
-        m_Work.reserve(dstSt * m_SrcH);
-        m_Work.resize(dstSt * m_SrcH);
+        m_Work.reserve(dstSt * (m_SrcH + 2));
+        m_Work.resize(dstSt * (m_SrcH + 2));
         float * tmp = &m_Work[0];
+        float * tmpNume = &m_Work[dstSt * m_SrcH];
+        float * tmpDeno = &tmpNume[dstSt];
 
         // resize
         for ( intptr_t y = 0; y < m_SrcH; ++y ) {
@@ -322,13 +324,13 @@ namespace iqo {
             intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcH - numCoefsOn2) * m_DstH / m_SrcH);
 
             for ( intptr_t dstY = 0; dstY < mainBegin; ++dstY ) {
-                resizeYside(&tmp[0], dstY, dstSt, &dst[0]);
+                resizeYside(&tmp[0], dstY, dstSt, &dst[0], tmpNume, tmpDeno);
             }
             for ( intptr_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
-                resizeYmain(&tmp[0], dstY, dstSt, &dst[0]);
+                resizeYmain(&tmp[0], dstY, dstSt, &dst[0], tmpNume);
             }
             for ( intptr_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
-                resizeYside(&tmp[0], dstY, dstSt, &dst[0]);
+                resizeYside(&tmp[0], dstY, dstSt, &dst[0], tmpNume, tmpDeno);
             }
         }
     }
@@ -398,49 +400,60 @@ namespace iqo {
         }
     }
 
-    void LanczosResizer::Impl::resizeYside(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst)
+    void LanczosResizer::Impl::resizeYside(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst, float * nume, float * deno)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
         const float * tablesY = &m_TablesY[0];
         intptr_t tail = m_SrcH - 1;
+        //       srcOY = floor(dstY / scale)
+        intptr_t srcOY = dstY * m_SrcH / m_DstH;
+        intptr_t iTable = dstY % m_NumTablesY;
+        const float * coefs = &tablesY[iTable * m_NumCoefsY];
 
-        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
-            //       srcOY = floor(dstY / scale)
-            intptr_t srcOY = dstY * m_SrcH / m_DstH;
-            intptr_t iTable = dstY % m_NumTablesY;
-            const float * coefs = &tablesY[iTable * m_NumCoefsY];
-            float sum = 0;
-            float deno = 0;
+        std::memset(nume, 0, m_DstW * sizeof(*nume));
+        std::memset(deno, 0, m_DstW * sizeof(*deno));
 
-            for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
+        for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
+            float coef = coefs[i];
+            for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                sum += src[dstX + dstSt * clamp<intptr_t>(0, tail, srcY)] * coefs[i];
-                deno += coefs[i];
+                nume[dstX] += src[dstX + dstSt * clamp<intptr_t>(0, tail, srcY)] * coef;
+                deno[dstX] += coef;
             }
-
-            dst[dstX + dstSt * dstY] = std::max(0, std::min(255, int(round(sum / deno))));
+        }
+        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
+            nume[dstX] = round(nume[dstX] / deno[dstX]);
+        }
+        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
+            dst[dstX + dstSt * dstY] = std::max(0, std::min(255, int(nume[dstX])));
         }
     }
 
-    void LanczosResizer::Impl::resizeYmain(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst)
+    void LanczosResizer::Impl::resizeYmain(const float * src, intptr_t dstY, intptr_t dstSt, uint8_t * dst, float * sum)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
         const float * tablesY = &m_TablesY[0];
         const float * sumCoefs = &m_SumsY[0];
+        //       srcOY = floor(dstY / scale)
+        intptr_t srcOY = dstY * m_SrcH / m_DstH;
+        intptr_t iTable = dstY % m_NumTablesY;
+        const float * coefs = &tablesY[iTable * m_NumCoefsY];
+        float sumCoef = sumCoefs[iTable];
 
-        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
-            //       srcOY = floor(dstY / scale)
-            intptr_t srcOY = dstY * m_SrcH / m_DstH;
-            intptr_t iTable = dstY % m_NumTablesY;
-            const float * coefs = &tablesY[iTable * m_NumCoefsY];
-            float sum = 0;
+        std::memset(sum, 0, m_DstW * sizeof(*sum));
 
-            for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
+        for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
+            float coef = coefs[i];
+            for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                sum += src[dstX + dstSt * srcY] * coefs[i];
+                sum[dstX] += src[dstX + dstSt * srcY] * coef;
             }
-
-            dst[dstX + dstSt * dstY] = std::max(0, std::min(255, int(round(sum / sumCoefs[iTable]))));
+        }
+        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
+            sum[dstX] = round(sum[dstX] / sumCoef);
+        }
+        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
+            dst[dstX + dstSt * dstY] = std::max(0, std::min(255, int(sum[dstX])));
         }
     }
 
