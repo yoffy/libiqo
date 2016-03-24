@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
     }
     // resize U and V
     {
-        iqo::LanczosResizer r(degree, srcStX / 2, srcStY / 2, dstStX / 2, dstStY / 2);
+        iqo::LanczosResizer r(degree, srcStX / 2, srcStY / 2, dstStX / 2, dstStY / 2, 2);
 
         r.resize(srcStX / 2, srcU, dstStX / 2, dstU);
         r.resize(srcStX / 2, srcV, dstStX / 2, dstV);

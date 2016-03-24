@@ -17,9 +17,10 @@ namespace iqo {
         //! @param srcH     Height of source image
         //! @param dstW     Width of destination image
         //! @param dstH     Height of destination image
+        //! @param pxScale  Scale of a pixel (ex. 2 when U plane of YUV420 image)
         //!
         //! Construct coefficients table.
-        LanczosResizer(unsigned int degree, size_t srcW, size_t srcH, size_t dstW, size_t dstH);
+        LanczosResizer(unsigned int degree, size_t srcW, size_t srcH, size_t dstW, size_t dstH, size_t pxScale=1);
 
         //! @brief Destructor
         ~LanczosResizer();
