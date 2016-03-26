@@ -394,7 +394,7 @@ namespace iqo {
                 intptr_t srcOY = *iSrcOY++ + 1;
                 //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
                 const float * coefs = &tablesY[iTable];
-                iTable += m_NumCoefsX;
+                iTable += m_NumCoefsY;
                 if ( iTable == tableSize ) {
                     iTable = 0;
                 }
@@ -410,7 +410,7 @@ namespace iqo {
                 intptr_t srcOY = *iSrcOY++ + 1;
                 //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
                 const float * coefs = &tablesY[iTable];
-                iTable += m_NumCoefsX;
+                iTable += m_NumCoefsY;
                 if ( iTable == tableSize ) {
                     iTable = 0;
                 }
@@ -426,7 +426,7 @@ namespace iqo {
                 intptr_t srcOY = *iSrcOY++ + 1;
                 //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
                 const float * coefs = &tablesY[iTable];
-                iTable += m_NumCoefsX;
+                iTable += m_NumCoefsY;
                 if ( iTable == tableSize ) {
                     iTable = 0;
                 }
@@ -451,7 +451,7 @@ namespace iqo {
         const float * coefs,
         float * nume, float * deno)
     {
-        intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
+        intptr_t numCoefsOn2 = m_NumCoefsY / 2;
         intptr_t tail = m_SrcH - 1;
 
         std::memset(nume, 0, dstW * sizeof(*nume));
@@ -477,7 +477,7 @@ namespace iqo {
         const float * coefs,
         float * sum)
     {
-        intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
+        intptr_t numCoefsOn2 = m_NumCoefsY / 2;
 
         std::memset(sum, 0, dstW * sizeof(*sum));
 
