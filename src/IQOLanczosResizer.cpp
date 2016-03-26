@@ -198,6 +198,55 @@ namespace {
         return b;
     }
 
+    //! linear integer interpolation
+    class LinearIterator
+    {
+    public:
+        LinearIterator(intptr_t dx, intptr_t dy)
+        {
+            m_DX = dx;
+            m_DY = dy;
+            m_X = 0;
+            m_Y = 0;
+        }
+
+        //! get y
+        intptr_t operator*() const
+        {
+            return m_Y;
+        }
+
+        //! ++x
+        LinearIterator & operator++()
+        {
+            advance();
+            return *this;
+        }
+
+        //! x++
+        LinearIterator operator++(int)
+        {
+            LinearIterator tmp(*this);
+            advance();
+            return tmp;
+        }
+
+    private:
+        void advance()
+        {
+            m_X += m_DY;
+            while ( m_X >= m_DX ) {
+                ++m_Y;
+                m_X -= m_DX;
+            }
+        }
+
+        intptr_t m_DX;
+        intptr_t m_DY;
+        intptr_t m_X;
+        intptr_t m_Y;
+    };
+
 }
 
 namespace iqo {
@@ -214,13 +263,15 @@ namespace iqo {
     private:
         void resizeYside(
             intptr_t srcSt, const uint8_t * src,
-            intptr_t dstY,
             intptr_t dstSt, intptr_t dstW, float * dst,
+            intptr_t srcOY, intptr_t dstY,
+            const float * coefs,
             float * nume, float * deno);
         void resizeYmain(
             intptr_t srcSt, const uint8_t * src,
-            intptr_t dstY,
             intptr_t dstSt, intptr_t dstW, float * dst,
+            intptr_t srcOY, intptr_t dstY,
+            const float * coefs,
             float * nume);
         void resizeX(const float * src, uint8_t * dst);
 
@@ -333,15 +384,58 @@ namespace iqo {
             // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstH / double(m_SrcH))
             intptr_t mainBegin = ((numCoefsOn2 - 1) * m_DstH + m_SrcH-1) / m_SrcH;
             intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcH - numCoefsOn2) * m_DstH / m_SrcH);
+            const float * tablesY = &m_TablesY[0];
+            intptr_t tableSize = m_NumTablesY * m_NumCoefsY;
+            intptr_t iTable = 0;
+            LinearIterator iSrcOY(m_DstH, m_SrcH);
 
             for ( intptr_t dstY = 0; dstY < mainBegin; ++dstY ) {
-                resizeYside(srcSt, &src[0], dstY, srcSt, m_SrcW, &tmp[0], tmpNume, tmpDeno);
+                //       srcOY = floor(dstY / scale) + 1
+                intptr_t srcOY = *iSrcOY++ + 1;
+                //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
+                const float * coefs = &tablesY[iTable];
+                iTable += m_NumCoefsX;
+                if ( iTable == tableSize ) {
+                    iTable = 0;
+                }
+                resizeYside(
+                    srcSt, &src[0],
+                    srcSt, m_SrcW, &tmp[0],
+                    srcOY, dstY,
+                    coefs,
+                    tmpNume, tmpDeno);
             }
             for ( intptr_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
-                resizeYmain(srcSt, &src[0], dstY, srcSt, m_SrcW, &tmp[0], tmpNume);
+                //       srcOY = floor(dstY / scale) + 1
+                intptr_t srcOY = *iSrcOY++ + 1;
+                //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
+                const float * coefs = &tablesY[iTable];
+                iTable += m_NumCoefsX;
+                if ( iTable == tableSize ) {
+                    iTable = 0;
+                }
+                resizeYmain(
+                    srcSt, &src[0],
+                    srcSt, m_SrcW, &tmp[0],
+                    srcOY, dstY,
+                    coefs,
+                    tmpNume);
             }
             for ( intptr_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
-                resizeYside(srcSt, &src[0], dstY, srcSt, m_SrcW, &tmp[0], tmpNume, tmpDeno);
+                //       srcOY = floor(dstY / scale) + 1
+                intptr_t srcOY = *iSrcOY++ + 1;
+                //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
+                const float * coefs = &tablesY[iTable];
+                iTable += m_NumCoefsX;
+                if ( iTable == tableSize ) {
+                    iTable = 0;
+                }
+                resizeYside(
+                    srcSt, &src[0],
+                    srcSt, m_SrcW, &tmp[0],
+                    srcOY, dstY,
+                    coefs,
+                    tmpNume, tmpDeno);
             }
         }
         for ( intptr_t y = 0; y < m_DstH; ++y ) {
@@ -352,17 +446,13 @@ namespace iqo {
 
     void LanczosResizer::Impl::resizeYside(
         intptr_t srcSt, const uint8_t * src,
-        intptr_t dstY,
         intptr_t dstSt, intptr_t dstW, float * dst,
+        intptr_t srcOY, intptr_t dstY,
+        const float * coefs,
         float * nume, float * deno)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
-        const float * tablesY = &m_TablesY[0];
         intptr_t tail = m_SrcH - 1;
-        //       srcOY = floor(dstY / scale)
-        intptr_t srcOY = dstY * m_SrcH / m_DstH;
-        intptr_t iTable = dstY % m_NumTablesY;
-        const float * coefs = &tablesY[iTable * m_NumCoefsY];
 
         std::memset(nume, 0, dstW * sizeof(*nume));
         std::memset(deno, 0, dstW * sizeof(*deno));
@@ -382,16 +472,12 @@ namespace iqo {
 
     void LanczosResizer::Impl::resizeYmain(
         intptr_t srcSt, const uint8_t * src,
-        intptr_t dstY,
         intptr_t dstSt, intptr_t dstW, float * dst,
+        intptr_t srcOY, intptr_t dstY,
+        const float * coefs,
         float * sum)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
-        const float * tablesY = &m_TablesY[0];
-        //       srcOY = floor(dstY / scale)
-        intptr_t srcOY = dstY * m_SrcH / m_DstH;
-        intptr_t iTable = dstY % m_NumTablesY;
-        const float * coefs = &tablesY[iTable * m_NumCoefsY];
 
         std::memset(sum, 0, dstW * sizeof(*sum));
 
@@ -414,16 +500,23 @@ namespace iqo {
         // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
         intptr_t mainBegin = ((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW;
         intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcW - numCoefsOn2) * m_DstW / m_SrcW);
+        LinearIterator iSrcOX(m_DstW, m_SrcW);
+        intptr_t tableSize = m_NumTablesX * m_NumCoefsX;
+        intptr_t iTable = 0;
 
         // before main
         for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
-            //       srcOX = floor(dstX / scale)
-            intptr_t srcOX = dstX * m_SrcW / m_DstW + 1;
-            intptr_t iTable = dstX % m_NumTablesX;
-            const float * coefs = &tablesX[iTable * m_NumCoefsX];
+            //       srcOX = floor(dstX / scale) + 1;
+            intptr_t srcOX = *iSrcOX++ + 1;
+            //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
+            const float * coefs = &tablesX[iTable];
             float sum = 0;
             float deno = 0;
 
+            iTable += m_NumCoefsX;
+            if ( iTable == tableSize ) {
+                iTable = 0;
+            }
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
@@ -436,12 +529,16 @@ namespace iqo {
         }
 
         for ( intptr_t dstX = mainBegin; dstX < mainEnd; ++dstX ) {
-            //       srcOX = floor(dstX / scale)
-            intptr_t srcOX = dstX * m_SrcW / m_DstW + 1;
-            intptr_t iTable = dstX % m_NumTablesX;
-            const float * coefs = &tablesX[iTable * m_NumCoefsX];
+            //       srcOX = floor(dstX / scale) + 1;
+            intptr_t srcOX = *iSrcOX++ + 1;
+            //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
+            const float * coefs = &tablesX[iTable];
             float sum = 0;
 
+            iTable += m_NumCoefsX;
+            if ( iTable == tableSize ) {
+                iTable = 0;
+            }
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
                 sum += src[srcX] * coefs[i];
@@ -452,13 +549,17 @@ namespace iqo {
 
         // after main
         for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
-            //       srcOX = floor(dstX / scale)
-            intptr_t srcOX = dstX * m_SrcW / m_DstW + 1;
-            intptr_t iTable = dstX % m_NumTablesX;
-            const float * coefs = &tablesX[iTable * m_NumCoefsX];
+            //       srcOX = floor(dstX / scale) + 1;
+            intptr_t srcOX = *iSrcOX++ + 1;
+            //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
+            const float * coefs = &tablesX[iTable];
             float sum = 0;
             float deno = 0;
 
+            iTable += m_NumCoefsX;
+            if ( iTable == tableSize ) {
+                iTable = 0;
+            }
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
