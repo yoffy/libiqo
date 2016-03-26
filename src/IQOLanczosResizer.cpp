@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 #include "libiqo/IQOLanczosResizer.hpp"
