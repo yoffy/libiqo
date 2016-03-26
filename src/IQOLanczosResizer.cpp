@@ -233,9 +233,7 @@ namespace iqo {
         intptr_t m_NumTablesX;
         intptr_t m_NumTablesY;
         std::vector<float> m_TablesX;   //!< Lanczos table * m_NumTablesX
-        std::vector<float> m_SumsX;     //!< Sum of Lanczos table * m_NumTablesX
         std::vector<float> m_TablesY;   //!< Lanczos table * m_NumTablesY
-        std::vector<float> m_SumsY;     //!< Sum of Lanczos table * m_NumTablesY
         std::vector<float> m_Work;
     };
 
@@ -294,20 +292,22 @@ namespace iqo {
         m_NumTablesY = m_DstH / gcd(m_SrcH, m_DstH);
         m_TablesX.reserve(m_NumCoefsX * m_NumTablesX);
         m_TablesX.resize(m_NumCoefsX * m_NumTablesX);
-        m_SumsX.reserve(m_NumTablesX);
-        m_SumsX.resize(m_NumTablesX);
         m_TablesY.reserve(m_NumCoefsY * m_NumTablesY);
         m_TablesY.resize(m_NumCoefsY * m_NumTablesY);
-        m_SumsY.reserve(m_NumTablesY);
-        m_SumsY.resize(m_NumTablesY);
 
         for ( intptr_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
             float * table = &m_TablesX[dstX * m_NumCoefsX];
-            m_SumsX[dstX] = setLanczosTable(degree, m_SrcW, m_DstW, dstX, pxScale, m_NumCoefsX, table);
+            double sumCoefs = setLanczosTable(degree, m_SrcW, m_DstW, dstX, pxScale, m_NumCoefsX, table);
+            for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+                table[i] /= sumCoefs;
+            }
         }
         for ( intptr_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
             float * table = &m_TablesY[dstY * m_NumCoefsY];
-            m_SumsY[dstY] = setLanczosTable(degree, m_SrcH, m_DstH, dstY, pxScale, m_NumCoefsY, table);
+            double sumCoefs = setLanczosTable(degree, m_SrcH, m_DstH, dstY, pxScale, m_NumCoefsY, table);
+            for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
+                table[i] /= sumCoefs;
+            }
         }
     }
 
@@ -322,7 +322,11 @@ namespace iqo {
 
         // resize
         if ( m_SrcH == m_DstH ) {
-            tmp = src;
+            for ( intptr_t y = 0; y < m_SrcH; ++y ) {
+                for ( intptr_t x = 0; x < m_SrcW; ++x ) {
+                    tmp[srcSt * y + x] = src[srcSt * y + x];
+                }
+            }
         } else {
             // vertical
             intptr_t numCoefsOn2 = m_NumCoefsY / 2;
@@ -384,12 +388,10 @@ namespace iqo {
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2 - 1;
         const float * tablesY = &m_TablesY[0];
-        const float * sumCoefs = &m_SumsY[0];
         //       srcOY = floor(dstY / scale)
         intptr_t srcOY = dstY * m_SrcH / m_DstH;
         intptr_t iTable = dstY % m_NumTablesY;
         const float * coefs = &tablesY[iTable * m_NumCoefsY];
-        float sumCoef = sumCoefs[iTable];
 
         std::memset(sum, 0, dstW * sizeof(*sum));
 
@@ -401,7 +403,7 @@ namespace iqo {
             }
         }
         for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
-            dst[dstX + dstSt * dstY] = sum[dstX] / sumCoef;
+            dst[dstX + dstSt * dstY] = sum[dstX];
         }
     }
 
@@ -409,7 +411,6 @@ namespace iqo {
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
         const float * tablesX = &m_TablesX[0];
-        const float * sumCoefs = &m_SumsX[0];
         // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
         intptr_t mainBegin = ((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW;
         intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcW - numCoefsOn2) * m_DstW / m_SrcW);
@@ -446,7 +447,7 @@ namespace iqo {
                 sum += src[srcX] * coefs[i];
             }
 
-            dst[dstX] = clamp<int>(0, 255, round(sum / sumCoefs[iTable]));
+            dst[dstX] = clamp<int>(0, 255, round(sum));
         }
 
         // after main
