@@ -266,13 +266,12 @@ namespace iqo {
             intptr_t dstSt, intptr_t dstW, float * dst,
             intptr_t srcOY, intptr_t dstY,
             const float * coefs,
-            float * nume, float * deno);
+            float * deno);
         void resizeYmain(
             intptr_t srcSt, const uint8_t * src,
             intptr_t dstSt, intptr_t dstW, float * dst,
             intptr_t srcOY, intptr_t dstY,
-            const float * coefs,
-            float * nume);
+            const float * coefs);
         void resizeX(const float * src, uint8_t * dst);
 
         intptr_t m_SrcW;
@@ -365,11 +364,10 @@ namespace iqo {
     void LanczosResizer::Impl::resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * dst)
     {
         // allocate workspace
-        m_Work.reserve(srcSt * (m_DstH + 2));
-        m_Work.resize(srcSt * (m_DstH + 2));
+        m_Work.reserve(srcSt * (m_DstH + 1));
+        m_Work.resize(srcSt * (m_DstH + 1));
         float * tmp = &m_Work[0];
-        float * tmpNume = &m_Work[m_SrcW * m_DstH];
-        float * tmpDeno = &tmpNume[m_SrcW];
+        float * tmpDeno = &m_Work[m_SrcW * m_DstH];
 
         // resize
         if ( m_SrcH == m_DstH ) {
@@ -403,7 +401,7 @@ namespace iqo {
                     srcSt, m_SrcW, &tmp[0],
                     srcOY, dstY,
                     coefs,
-                    tmpNume, tmpDeno);
+                    tmpDeno);
             }
             for ( intptr_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
                 //       srcOY = floor(dstY / scale) + 1
@@ -418,8 +416,7 @@ namespace iqo {
                     srcSt, &src[0],
                     srcSt, m_SrcW, &tmp[0],
                     srcOY, dstY,
-                    coefs,
-                    tmpNume);
+                    coefs);
             }
             for ( intptr_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
                 //       srcOY = floor(dstY / scale) + 1
@@ -435,7 +432,7 @@ namespace iqo {
                     srcSt, m_SrcW, &tmp[0],
                     srcOY, dstY,
                     coefs,
-                    tmpNume, tmpDeno);
+                    tmpDeno);
             }
         }
         for ( intptr_t y = 0; y < m_DstH; ++y ) {
@@ -449,10 +446,11 @@ namespace iqo {
         intptr_t dstSt, intptr_t dstW, float * dst,
         intptr_t srcOY, intptr_t dstY,
         const float * coefs,
-        float * nume, float * deno)
+        float * deno)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
         intptr_t tail = m_SrcH - 1;
+        float * nume = &dst[dstSt * dstY];
 
         std::memset(nume, 0, dstW * sizeof(*nume));
         std::memset(deno, 0, dstW * sizeof(*deno));
@@ -466,7 +464,7 @@ namespace iqo {
             }
         }
         for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
-            dst[dstX + dstSt * dstY] = nume[dstX] / deno[dstX];
+            nume[dstX] /= deno[dstX];
         }
     }
 
@@ -474,22 +472,19 @@ namespace iqo {
         intptr_t srcSt, const uint8_t * src,
         intptr_t dstSt, intptr_t dstW, float * dst,
         intptr_t srcOY, intptr_t dstY,
-        const float * coefs,
-        float * sum)
+        const float * coefs)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
+        float * nume = &dst[dstSt * dstY];
 
-        std::memset(sum, 0, dstW * sizeof(*sum));
+        std::memset(nume, 0, dstW * sizeof(*nume));
 
         for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
             float coef = coefs[i];
             for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                sum[dstX] += src[dstX + srcSt * srcY] * coef;
+                nume[dstX] += src[dstX + srcSt * srcY] * coef;
             }
-        }
-        for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
-            dst[dstX + dstSt * dstY] = sum[dstX];
         }
     }
 
