@@ -449,7 +449,6 @@ namespace iqo {
         float * deno)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
-        intptr_t tail = m_SrcH - 1;
         float * nume = &dst[dstSt * dstY];
 
         std::memset(nume, 0, dstW * sizeof(*nume));
@@ -459,8 +458,10 @@ namespace iqo {
             float coef = coefs[i];
             for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                nume[dstX] += src[dstX + srcSt * clamp<intptr_t>(0, tail, srcY)] * coef;
-                deno[dstX] += coef;
+                if ( 0 <= srcY && srcY < m_SrcW ) {
+                    nume[dstX] += src[dstX + srcSt * srcY] * coef;
+                    deno[dstX] += coef;
+                }
             }
         }
         for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
