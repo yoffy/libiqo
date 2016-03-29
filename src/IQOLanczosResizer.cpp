@@ -261,7 +261,7 @@ namespace iqo {
         void resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * dst);
 
     private:
-        void resizeYside(
+        void resizeYborder(
             intptr_t srcSt, const uint8_t * src,
             intptr_t dstSt, intptr_t dstW, float * dst,
             intptr_t srcOY, intptr_t dstY,
@@ -396,7 +396,7 @@ namespace iqo {
                 if ( iTable == tableSize ) {
                     iTable = 0;
                 }
-                resizeYside(
+                resizeYborder(
                     srcSt, &src[0],
                     srcSt, m_SrcW, &tmp[0],
                     srcOY, dstY,
@@ -427,7 +427,7 @@ namespace iqo {
                 if ( iTable == tableSize ) {
                     iTable = 0;
                 }
-                resizeYside(
+                resizeYborder(
                     srcSt, &src[0],
                     srcSt, m_SrcW, &tmp[0],
                     srcOY, dstY,
@@ -441,7 +441,7 @@ namespace iqo {
         }
     }
 
-    void LanczosResizer::Impl::resizeYside(
+    void LanczosResizer::Impl::resizeYborder(
         intptr_t srcSt, const uint8_t * src,
         intptr_t dstSt, intptr_t dstW, float * dst,
         intptr_t srcOY, intptr_t dstY,
