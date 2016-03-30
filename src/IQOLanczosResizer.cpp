@@ -149,8 +149,9 @@ namespace {
             // = std::fmod(((dstLen - (dstOffset * srcLen % dstLen))/srcLen) * pxScale, 1.0)
             // = std::fmod( (dstLen - (dstOffset * srcLen % dstLen))         * pxScale, srcLen) / srcLen
             // = ((dstLen - dstOffset*srcLen%dstLen) * pxScale % srcLen) / srcLen
+            int degFactor = std::max<int>(1, pxScale / degree);
             beginX =
-                -degree - 0.5*pxScale + 0.5*dstLen*pxScale/srcLen
+                -degree*degFactor - 0.5*pxScale + 0.5*dstLen*pxScale/srcLen
                 + ((dstLen - dstOffset * srcLen % dstLen) * pxScale % srcLen) / double(srcLen);
         } else {
             // up-sampling
