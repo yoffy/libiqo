@@ -460,7 +460,7 @@ namespace iqo {
             float coef = coefs[i];
             for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                if ( 0 <= srcY && srcY < m_SrcW ) {
+                if ( 0 <= srcY && srcY < m_SrcH ) {
                     nume[dstX] += src[dstX + srcSt * srcY] * coef;
                     deno[dstX] += coef;
                 }
