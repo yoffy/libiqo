@@ -39,7 +39,7 @@ namespace {
     //! @param fTable     The table
     //! @return Sum of the table
     //!
-    //! Calculate Lanczos coefficients from `-degree * pxScale` to `+degree * pxScale`.
+    //! Calculate Lanczos coefficients from `-degree` to `+degree`.
     //!
     //! n should be `2*degree` when up sampling.
     template<typename T>
@@ -132,15 +132,15 @@ namespace {
             //----- easy solution -----
             //double scale = dstLen / double(srcLen);
             //double srcOffset = std::fmod(dstOffset / scale, 1.0);
-            //double beginX = (-degree - 0.5 + 0.5*scale)*pxScale + std::fmod((1 - srcOffset) * scale * pxScale, 1.0);
+            //double beginX = -degree + (-0.5 + 0.5*scale)*pxScale + std::fmod((1 - srcOffset) * scale * pxScale, 1.0);
 
             //----- more accurate -----
             // srcOffset = std::fmod(dstOffset / scale, 1.0)
             //           = (dstOffset * srcLen % dstLen) / dstLen;
 
-            // (-degree - 0.5 + 0.5*scale)*pxScale
-            // = (-degree - 0.5 + 0.5*dstLen/srcLen) * pxScale
-            // = (-degree - 0.5)*pxScale + 0.5*dstLen*pxScale/srcLen
+            // -degree + (-0.5 + 0.5*scale)*pxScale
+            // = -degree + (-0.5 + 0.5*dstLen/srcLen) * pxScale
+            // = -degree - 0.5*pxScale + 0.5*dstLen*pxScale/srcLen
 
             // std::fmod((1 - srcOffset) * scale * pxScale, 1.0)
             // = std::fmod((1 - (dstOffset * srcLen % dstLen)/dstLen) * (dstLen/srcLen) * pxScale, 1.0)
@@ -150,7 +150,7 @@ namespace {
             // = std::fmod( (dstLen - (dstOffset * srcLen % dstLen))         * pxScale, srcLen) / srcLen
             // = ((dstLen - dstOffset*srcLen%dstLen) * pxScale % srcLen) / srcLen
             beginX =
-                (-degree - 0.5)*pxScale + 0.5*dstLen*pxScale/srcLen
+                -degree - 0.5*pxScale + 0.5*dstLen*pxScale/srcLen
                 + ((dstLen - dstOffset * srcLen % dstLen) * pxScale % srcLen) / double(srcLen);
         } else {
             // up-sampling
@@ -328,7 +328,8 @@ namespace iqo {
         } else {
             // vertical: down-sampling
             // n = 2*degree / scale
-            m_NumCoefsX = 2 * intptr_t(std::ceil((degree * m_SrcW) / double(m_DstW)));
+            size_t degree2 = std::max<size_t>(1, degree / pxScale);
+            m_NumCoefsX = 2 * intptr_t(std::ceil((degree2 * m_SrcW) / double(m_DstW)));
         }
         if ( m_SrcH <= m_DstH ) {
             // vertical: up-sampling
@@ -336,7 +337,8 @@ namespace iqo {
         } else {
             // vertical: down-sampling
             // n = 2*degree / scale
-            m_NumCoefsY = 2 * intptr_t(std::ceil((degree * m_SrcH) / double(m_DstH)));
+            size_t degree2 = std::max<size_t>(1, degree / pxScale);
+            m_NumCoefsY = 2 * intptr_t(std::ceil((degree2 * m_SrcH) / double(m_DstH)));
         }
         m_NumTablesX = m_DstW / gcd(m_SrcW, m_DstW);
         m_NumTablesY = m_DstH / gcd(m_SrcH, m_DstH);
