@@ -1,6 +1,6 @@
 TARGET=libiqo.a
 OBJS=IQOLanczosResizer.o
-OPTFLAGS=-O3 -march=native -ffast-math
+OPTFLAGS=-O3 -march=native -ffast-math -D NDEBUG
 #OPTFLAGS=-O0 -march=native
 CXXFLAGS=-std=c++98 -Wall -Wextra -fno-exceptions -g $(OPTFLAGS) -I ../include
 
