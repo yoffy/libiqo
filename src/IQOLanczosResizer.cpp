@@ -362,21 +362,22 @@ namespace iqo {
                 table[i] /= sumCoefs;
             }
         }
+
+        // allocate workspace
+        m_Work.reserve(m_SrcW * (m_DstH + 1));
+        m_Work.resize(m_SrcW * (m_DstH + 1));
     }
 
     void LanczosResizer::Impl::resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * dst)
     {
-        // allocate workspace
-        m_Work.reserve(srcSt * (m_DstH + 1));
-        m_Work.resize(srcSt * (m_DstH + 1));
         float * tmp = &m_Work[0];
-        float * tmpDeno = &m_Work[m_SrcW * m_DstH];
+        float * deno = &m_Work[m_SrcW * m_DstH];
 
         // resize
         if ( m_SrcH == m_DstH ) {
             for ( intptr_t y = 0; y < m_SrcH; ++y ) {
                 for ( intptr_t x = 0; x < m_SrcW; ++x ) {
-                    tmp[srcSt * y + x] = src[srcSt * y + x];
+                    tmp[m_SrcW * y + x] = src[srcSt * y + x];
                 }
             }
         } else {
@@ -401,10 +402,10 @@ namespace iqo {
                 }
                 resizeYborder(
                     srcSt, &src[0],
-                    srcSt, m_SrcW, &tmp[0],
+                    m_SrcW, m_SrcW, &tmp[0],
                     srcOY, dstY,
                     coefs,
-                    tmpDeno);
+                    deno);
             }
             for ( intptr_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
                 //       srcOY = floor(dstY / scale) + 1
@@ -417,7 +418,7 @@ namespace iqo {
                 }
                 resizeYmain(
                     srcSt, &src[0],
-                    srcSt, m_SrcW, &tmp[0],
+                    m_SrcW, m_SrcW, &tmp[0],
                     srcOY, dstY,
                     coefs);
             }
@@ -432,10 +433,10 @@ namespace iqo {
                 }
                 resizeYborder(
                     srcSt, &src[0],
-                    srcSt, m_SrcW, &tmp[0],
+                    m_SrcW, m_SrcW, &tmp[0],
                     srcOY, dstY,
                     coefs,
-                    tmpDeno);
+                    deno);
             }
         }
         for ( intptr_t y = 0; y < m_DstH; ++y ) {
