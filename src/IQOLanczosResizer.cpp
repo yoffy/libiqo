@@ -370,14 +370,13 @@ namespace iqo {
 
     void LanczosResizer::Impl::resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * dst)
     {
-        float * tmp = &m_Work[0];
         float * deno = &m_Work[m_SrcW * m_DstH];
 
         // resize
         if ( m_SrcH == m_DstH ) {
             for ( intptr_t y = 0; y < m_SrcH; ++y ) {
                 for ( intptr_t x = 0; x < m_SrcW; ++x ) {
-                    tmp[m_SrcW * y + x] = src[srcSt * y + x];
+                    m_Work[m_SrcW * y + x] = src[srcSt * y + x];
                 }
             }
         } else {
@@ -402,7 +401,7 @@ namespace iqo {
                 }
                 resizeYborder(
                     srcSt, &src[0],
-                    m_SrcW, m_SrcW, &tmp[0],
+                    m_SrcW, m_SrcW, &m_Work[0],
                     srcOY, dstY,
                     coefs,
                     deno);
@@ -418,7 +417,7 @@ namespace iqo {
                 }
                 resizeYmain(
                     srcSt, &src[0],
-                    m_SrcW, m_SrcW, &tmp[0],
+                    m_SrcW, m_SrcW, &m_Work[0],
                     srcOY, dstY,
                     coefs);
             }
@@ -433,7 +432,7 @@ namespace iqo {
                 }
                 resizeYborder(
                     srcSt, &src[0],
-                    m_SrcW, m_SrcW, &tmp[0],
+                    m_SrcW, m_SrcW, &m_Work[0],
                     srcOY, dstY,
                     coefs,
                     deno);
@@ -441,7 +440,7 @@ namespace iqo {
         }
         for ( intptr_t y = 0; y < m_DstH; ++y ) {
             // horizontal
-            resizeX(&tmp[srcSt * y], &dst[dstSt * y]);
+            resizeX(&m_Work[m_SrcW * y], &dst[dstSt * y]);
         }
     }
 
