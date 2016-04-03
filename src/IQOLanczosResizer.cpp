@@ -512,7 +512,7 @@ namespace iqo {
             }
         }
         for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
-            dst[dstX] = (nume[dstX] + 32) / deno[dstX];
+            dst[dstX] = roundedDiv(nume[dstX], deno[dstX]);
         }
     }
 
