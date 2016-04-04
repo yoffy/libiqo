@@ -580,7 +580,7 @@ namespace iqo {
             intptr_t srcOX = *iSrcOX++ + 1;
             //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
             const int16_t * coefs = &tablesX[iTable];
-            int16_t sum = 0;
+            int sum = 0; // rather than int16_t for gcc 4.8 vectorization
 
             iTable += m_NumCoefsX;
             if ( iTable == tableSize ) {
