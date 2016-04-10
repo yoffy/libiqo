@@ -178,7 +178,11 @@ namespace {
     template<typename T>
     T round(T x)
     {
-        return std::floor(x + T(0.5));
+        if ( x >= 0 ) {
+            return std::floor(x + T(0.5));
+        } else {
+            return std::ceil(x - T(0.5));
+        }
     }
 
     template<typename T>
