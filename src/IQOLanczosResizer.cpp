@@ -3,11 +3,22 @@
 #include <cstring>
 #include <algorithm>
 #include <vector>
+#include <immintrin.h>
 
 #include "libiqo/IQOLanczosResizer.hpp"
 
 
 namespace {
+
+    inline intptr_t alignFloor(intptr_t v, intptr_t alignment)
+    {
+        return v / alignment * alignment;
+    }
+
+    inline intptr_t alignCeil(intptr_t v, intptr_t alignment)
+    {
+        return (v + (alignment - 1)) / alignment * alignment;
+    }
 
     template<typename T>
     inline T sinc(T x)
@@ -200,6 +211,11 @@ namespace {
         return b;
     }
 
+    intptr_t lcm(intptr_t a, intptr_t b)
+    {
+        return a * b / gcd(a, b);
+    }
+
     //! linear integer interpolation
     class LinearIterator
     {
@@ -289,7 +305,13 @@ namespace iqo {
             int16_t * nume);
         void resizeX(const int16_t * src, uint8_t * dst);
 
-        static const int16_t kBias = 64; //! for fixed point
+        enum {
+            //! for SIMD
+            kVecStep = 16, //!< int16x16
+            //! for fixed point
+            kBiasBit = 6,
+            kBias    = 1 << kBiasBit
+        };
         intptr_t m_SrcW;
         intptr_t m_SrcH;
         intptr_t m_DstW;
@@ -297,12 +319,15 @@ namespace iqo {
         intptr_t m_NumCoefsX;
         intptr_t m_NumCoefsY;
         intptr_t m_NumTablesX;
+        intptr_t m_NumTablesX2;
         intptr_t m_NumTablesY;
         std::vector<int16_t> m_TablesX;   //!< Lanczos table * m_NumTablesX
+        std::vector<int16_t> m_TablesX2;  //!< Transposed
         std::vector<int16_t> m_TablesY;   //!< Lanczos table * m_NumTablesY
         std::vector<int16_t> m_Work;
         std::vector<int16_t> m_Nume;
         std::vector<int16_t> m_Deno;
+        std::vector<int32_t> m_IndicesX;
     };
 
     LanczosResizer::LanczosResizer(
@@ -359,18 +384,38 @@ namespace iqo {
             m_NumCoefsY = 2 * intptr_t(std::ceil((degree2 * m_SrcH) / double(m_DstH)));
         }
         m_NumTablesX = m_DstW / gcd(m_SrcW, m_DstW);
+        m_NumTablesX2 = lcm(m_NumTablesX, kVecStep);
         m_NumTablesY = m_DstH / gcd(m_SrcH, m_DstH);
         m_TablesX.reserve(m_NumCoefsX * m_NumTablesX);
         m_TablesX.resize(m_NumCoefsX * m_NumTablesX);
+        m_TablesX2.reserve(m_NumTablesX2 * m_NumCoefsX);
+        m_TablesX2.resize(m_NumTablesX2 * m_NumCoefsX);
         m_TablesY.reserve(m_NumCoefsY * m_NumTablesY);
         m_TablesY.resize(m_NumCoefsY * m_NumTablesY);
 
+        // X coefs
         std::vector<float> tablesX(m_NumCoefsX);
         for ( intptr_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
             int16_t * table = &m_TablesX[dstX * m_NumCoefsX];
             double sumCoefs = setLanczosTable(degree, m_SrcW, m_DstW, dstX, pxScale, m_NumCoefsX, &tablesX[0]);
             adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, &table[0]);
         }
+        // transpose and unroll X coefs
+        //
+        //  tables: A0A1A2A3
+        //          B0B1B2B3
+        //          C0C1C2C3
+        //
+        // tables2: A0B0C0A0 B0C0A0B0 C0A0B0C0 (align to SIMD unit)
+        //                      :
+        //          A3B3C3A3 B3C3A3B3 C3A3B3C3
+        for ( intptr_t iCoef = 0; iCoef < m_NumCoefsX; ++iCoef ) {
+            for ( intptr_t dstX = 0; dstX < m_NumTablesX2; ++dstX ) {
+                intptr_t i = dstX % m_NumTablesX * m_NumCoefsX + iCoef;
+                m_TablesX2[iCoef * m_NumTablesX2 + dstX] = m_TablesX[i];
+            }
+        }
+        // Y coefs
         std::vector<float> tablesY(m_NumCoefsY);
         for ( intptr_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
             int16_t * table = &m_TablesY[dstY * m_NumCoefsY];
@@ -386,6 +431,14 @@ namespace iqo {
         m_Nume.resize(maxW);
         m_Deno.reserve(maxW);
         m_Deno.resize(maxW);
+
+        // calc indices
+        m_IndicesX.reserve(m_DstW);
+        m_IndicesX.resize(m_DstW);
+        for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
+            int32_t srcOX = dstX * m_SrcW / m_DstW + 1;
+            m_IndicesX[dstX] = srcOX;
+        }
     }
 
     void LanczosResizer::Impl::adjustCoefs(
@@ -543,79 +596,127 @@ namespace iqo {
     void LanczosResizer::Impl::resizeX(const int16_t * src, uint8_t * dst)
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
-        const int16_t * tablesX = &m_TablesX[0];
+        int16_t * nume = &m_Nume[0];
+        int16_t * deno = &m_Deno[0];
+        const int16_t * tablesX2 = &m_TablesX2[0];
         // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
-        intptr_t mainBegin = ((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW;
+        intptr_t mainBegin = alignCeil(((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW, kVecStep);
         intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcW - numCoefsOn2) * m_DstW / m_SrcW);
+        intptr_t mainLen = alignFloor(mainEnd - mainBegin, kVecStep);
+        mainEnd = mainBegin + mainLen;
         LinearIterator iSrcOX(m_DstW, m_SrcW);
-        intptr_t tableSize = m_NumTablesX * m_NumCoefsX;
-        intptr_t iTable = 0;
+        const int32_t * indices = &m_IndicesX[0];
+
+        std::memset(nume, 0, sizeof(*nume) * m_DstW);
+        std::memset(deno, 0, sizeof(*deno) * m_DstW);
 
         // before main
-        for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
-            //       srcOX = floor(dstX / scale) + 1;
-            intptr_t srcOX = *iSrcOX++ + 1;
-            //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
-            const int16_t * coefs = &tablesX[iTable];
-            int16_t sum = 0;
-            int16_t deno = 0;
+        for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+            const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
+            intptr_t iCoef = 0;
 
-            iTable += m_NumCoefsX;
-            if ( iTable == tableSize ) {
-                iTable = 0;
-            }
-            for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+            for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
+                //       srcOX = floor(dstX / scale) + 1;
+                intptr_t srcOX = indices[dstX];
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
-                    sum += src[srcX] * coefs[i];
-                    deno += coefs[i];
+                    int16_t coef = coefs[iCoef];
+                    nume[dstX] += src[srcX] * coef;
+                    deno[dstX] += coef;
+                }
+
+                // iCoef = dstX % m_NumTablesX2;
+                iCoef++;
+                if ( iCoef == m_NumTablesX2 ) {
+                    iCoef = 0;
                 }
             }
-
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(sum, deno));
+        }
+        for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
+            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX], deno[dstX]));
         }
 
-        for ( intptr_t dstX = mainBegin; dstX < mainEnd; ++dstX ) {
-            //       srcOX = floor(dstX / scale) + 1;
-            intptr_t srcOX = *iSrcOX++ + 1;
-            //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
-            const int16_t * coefs = &tablesX[iTable];
-            int sum = 0; // rather than int16_t for gcc 4.8 vectorization
+        // main
+        intptr_t coefBegin = mainBegin % m_NumTablesX2;
+        __m256i s32x8NumCoefsOn2 = _mm256_set1_epi32(-numCoefsOn2);
+        __m256i u8x32table32to16L = _mm256_set_epi8( // 0x80 means to clear to zero
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00);
+        __m256i u8x32table32to16H = _mm256_set_epi8(
+            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
+        __m256i s16x16kBiasOn2 = _mm256_set1_epi16(kBias / 2);
+        for ( intptr_t dstX = mainBegin; dstX < mainEnd; dstX += kVecStep) {
+            intptr_t iCoef = coefBegin;
+            // nume             = 0;
+            __m256i s16x16Nume  = _mm256_setzero_si256();
+            // srcOX            = floor(dstX / scale) + 1;
+            __m256i s32x8SrcOXL = _mm256_loadu_si256((__m256i*)&indices[dstX + 0]);
+            __m256i s32x8SrcOXH = _mm256_loadu_si256((__m256i*)&indices[dstX + 8]);
 
-            iTable += m_NumCoefsX;
-            if ( iTable == tableSize ) {
-                iTable = 0;
-            }
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
-                intptr_t srcX = srcOX - numCoefsOn2 + i;
-                sum += src[srcX] * coefs[i];
+                const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
+
+                // srcX             = srcOX - numCoefsOn2 + i;
+                __m256i s32x8Offset = _mm256_add_epi32(s32x8NumCoefsOn2, _mm256_set1_epi32(i));
+                __m256i s32x8SrcXL  = _mm256_add_epi32(s32x8SrcOXL, s32x8Offset);
+                __m256i s32x8SrcXH  = _mm256_add_epi32(s32x8SrcOXH, s32x8Offset);
+                // nume            += src[srcX] * coefs[iCoef];
+                __m256i s32x8SrcL   = _mm256_i32gather_epi32((const int32_t *)src, s32x8SrcXL, 2);
+                __m256i s32x8SrcH   = _mm256_i32gather_epi32((const int32_t *)src, s32x8SrcXH, 2);
+                __m256i s16x8SrcLSh = _mm256_shuffle_epi8(s32x8SrcL, u8x32table32to16L);
+                __m256i s16x8SrcHSh = _mm256_shuffle_epi8(s32x8SrcH, u8x32table32to16H);
+                __m256i s16x16SrcSh = _mm256_or_si256(s16x8SrcLSh, s16x8SrcHSh);
+                __m256i s16x16Src   = _mm256_permute4x64_epi64(s16x16SrcSh, _MM_SHUFFLE(3, 1, 2, 0));
+                __m256i s16x16Coefs = _mm256_loadu_si256((__m256i*)&coefs[iCoef]);
+                __m256i s16x16iNume = _mm256_mullo_epi16(s16x16Src, s16x16Coefs);
+
+                s16x16Nume = _mm256_add_epi16(s16x16Nume, s16x16iNume);
             }
 
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(sum, 64));
+            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, kBias));
+            __m256i s16x16Dst  = _mm256_srai_epi16(_mm256_add_epi16(s16x16Nume, s16x16kBiasOn2), kBiasBit);
+            __m128i s16x8DstLo = _mm256_castsi256_si128(s16x16Dst);
+            __m128i s16x8DstHi = _mm256_extractf128_si256(s16x16Dst, 1);
+            __m128i u8x16Dst   = _mm_packus_epi16(s16x8DstLo, s16x8DstHi);
+            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
+
+            // iCoef = dstX % m_NumTablesX2;
+            iCoef += kVecStep;
+            if ( iCoef == m_NumTablesX2 ) {
+                iCoef = 0;
+            }
         }
 
         // after main
-        for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
-            //       srcOX = floor(dstX / scale) + 1;
-            intptr_t srcOX = *iSrcOX++ + 1;
-            //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
-            const int16_t * coefs = &tablesX[iTable];
-            int16_t sum = 0;
-            int16_t deno = 0;
+        intptr_t coefEnd = mainEnd % m_NumTablesX2;
+        for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+            const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
+            intptr_t iCoef = coefEnd;
 
-            iTable += m_NumCoefsX;
-            if ( iTable == tableSize ) {
-                iTable = 0;
-            }
-            for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+            for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
+                //       srcOX = floor(dstX / scale) + 1;
+                intptr_t srcOX = indices[dstX];
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
-                    sum += src[srcX] * coefs[i];
-                    deno += coefs[i];
+                    int16_t coef = coefs[iCoef];
+                    nume[dstX] += src[srcX] * coef;
+                    deno[dstX] += coef;
+                }
+
+                // iCoef = dstX % m_NumTablesX2;
+                iCoef++;
+                if ( iCoef == m_NumTablesX2 ) {
+                    iCoef = 0;
                 }
             }
-
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(sum, deno));
+        }
+        for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
+            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX], deno[dstX]));
         }
     }
 
