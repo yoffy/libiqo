@@ -607,8 +607,8 @@ namespace iqo {
         LinearIterator iSrcOX(m_DstW, m_SrcW);
         const int32_t * indices = &m_IndicesX[0];
 
-        std::memset(nume, 0, sizeof(*nume) * m_DstW);
-        std::memset(deno, 0, sizeof(*deno) * m_DstW);
+        std::memset(nume, 0, sizeof(*nume) * (m_DstW - mainLen));
+        std::memset(deno, 0, sizeof(*deno) * (m_DstW - mainLen));
 
         // before main
         for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
@@ -694,6 +694,7 @@ namespace iqo {
 
         // after main
         intptr_t coefEnd = mainEnd % m_NumTablesX2;
+        intptr_t workOffset = -mainEnd + mainBegin;
         for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
             const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
             intptr_t iCoef = coefEnd;
@@ -704,8 +705,8 @@ namespace iqo {
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
                     int16_t coef = coefs[iCoef];
-                    nume[dstX] += src[srcX] * coef;
-                    deno[dstX] += coef;
+                    nume[dstX + workOffset] += src[srcX] * coef;
+                    deno[dstX + workOffset] += coef;
                 }
 
                 // iCoef = dstX % m_NumTablesX2;
@@ -716,7 +717,7 @@ namespace iqo {
             }
         }
         for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX], deno[dstX]));
+            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX + workOffset], deno[dstX + workOffset]));
         }
     }
 
