@@ -599,23 +599,87 @@ namespace iqo {
         int16_t * nume = &m_Nume[0];
         int16_t * deno = &m_Deno[0];
         const int16_t * tablesX2 = &m_TablesX2[0];
-        // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
-        intptr_t mainBegin = alignCeil(((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW, kVecStep);
-        intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcW - numCoefsOn2) * m_DstW / m_SrcW);
-        intptr_t mainLen = alignFloor(mainEnd - mainBegin, kVecStep);
-        mainEnd = mainBegin + mainLen;
-        LinearIterator iSrcOX(m_DstW, m_SrcW);
+        intptr_t vecEnd = alignFloor(m_DstW, sizeof(int32_t)); // for _mm_maskstore_epi32
         const int32_t * indices = &m_IndicesX[0];
 
-        std::memset(nume, 0, sizeof(*nume) * (m_DstW - mainLen));
-        std::memset(deno, 0, sizeof(*deno) * (m_DstW - mainLen));
+        std::memset(&nume[vecEnd], 0, sizeof(*nume) * (m_DstW - vecEnd));
+        std::memset(&deno[vecEnd], 0, sizeof(*deno) * (m_DstW - vecEnd));
 
-        // before main
+        // main
+        __m256i s32x8NumCoefsOn2 = _mm256_set1_epi32(-numCoefsOn2);
+        __m256i u8x32table32to16L = _mm256_set_epi8( // 0x80 means to clear to zero
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00);
+        __m256i u8x32table32to16H = _mm256_set_epi8(
+            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
+            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
+        __m256i s16x16kBiasOn2 = _mm256_set1_epi16(kBias / 2);
+        __m256i s32x8SrcW      = _mm256_set1_epi32(m_SrcW);
+        __m128i s32x4DstW      = _mm_set1_epi32(m_DstW);
+        intptr_t iCoef = 0;
+        for ( intptr_t dstX = 0; dstX < vecEnd; dstX += kVecStep ) {
+            // nume             = 0;
+            __m256i s16x16Nume  = _mm256_setzero_si256();
+            // srcOX            = floor(dstX / scale) + 1;
+            __m256i s32x8SrcOXL = _mm256_loadu_si256((__m256i*)&indices[dstX + 0]);
+            __m256i s32x8SrcOXH = _mm256_loadu_si256((__m256i*)&indices[dstX + 8]);
+
+            for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+                const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
+
+                // srcX             = srcOX - numCoefsOn2 + i;
+                __m256i s32x8Offset = _mm256_add_epi32(s32x8NumCoefsOn2, _mm256_set1_epi32(i));
+                __m256i s32x8SrcXL  = _mm256_add_epi32(s32x8SrcOXL, s32x8Offset);
+                __m256i s32x8SrcXH  = _mm256_add_epi32(s32x8SrcOXH, s32x8Offset);
+                // isLoad           = 0 <= srcX && srcX < srcW
+                //                  = !(0 > srcX) && srcW > srcX
+                __m256i s32x8IsLoadL= _mm256_andnot_si256(
+                    _mm256_cmpgt_epi32(_mm256_setzero_si256(), s32x8SrcXL),
+                    _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcXL));
+                __m256i s32x8IsLoadH= _mm256_andnot_si256(
+                    _mm256_cmpgt_epi32(_mm256_setzero_si256(), s32x8SrcXH),
+                    _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcXH));
+                // nume            += src[srcX] * coefs[iCoef];
+                __m256i s32x8SrcL   = _mm256_mask_i32gather_epi32(_mm256_setzero_si256(), (const int32_t *)src, s32x8SrcXL, s32x8IsLoadL, 2);
+                __m256i s32x8SrcH   = _mm256_mask_i32gather_epi32(_mm256_setzero_si256(), (const int32_t *)src, s32x8SrcXH, s32x8IsLoadH, 2);
+                __m256i s16x8SrcLSh = _mm256_shuffle_epi8(s32x8SrcL, u8x32table32to16L);
+                __m256i s16x8SrcHSh = _mm256_shuffle_epi8(s32x8SrcH, u8x32table32to16H);
+                __m256i s16x16SrcSh = _mm256_or_si256(s16x8SrcLSh, s16x8SrcHSh);
+                __m256i s16x16Src   = _mm256_permute4x64_epi64(s16x16SrcSh, _MM_SHUFFLE(3, 1, 2, 0));
+                __m256i s16x16Coefs = _mm256_loadu_si256((__m256i*)&coefs[iCoef]);
+                __m256i s16x16iNume = _mm256_mullo_epi16(s16x16Src, s16x16Coefs);
+
+                s16x16Nume = _mm256_add_epi16(s16x16Nume, s16x16iNume);
+            }
+
+            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, kBias));
+            __m256i s16x16Dst    = _mm256_srai_epi16(_mm256_add_epi16(s16x16Nume, s16x16kBiasOn2), kBiasBit);
+            __m128i s16x8DstLo   = _mm256_castsi256_si128(s16x16Dst);
+            __m128i s16x8DstHi   = _mm256_extractf128_si256(s16x16Dst, 1);
+            __m128i u8x16Dst     = _mm_packus_epi16(s16x8DstLo, s16x8DstHi);
+            __m128i s32x4Column  = _mm_set_epi32(15, 11, 7, 3); // dstX * sizeof(int32_t) + (sizeof(int32_t) - 1)
+            __m128i s32x4DstX    = _mm_add_epi32(s32x4Column, _mm_set1_epi32(dstX));
+            __m128i s32x4IsStore = _mm_cmpgt_epi32(s32x4DstW, s32x4DstX);
+            _mm_maskstore_epi32((int32_t*)&dst[dstX], s32x4IsStore, u8x16Dst);
+
+            // iCoef = dstX % m_NumTablesX2;
+            iCoef += kVecStep;
+            if ( iCoef == m_NumTablesX2 ) {
+                iCoef = 0;
+            }
+        }
+
+        // after vec
+        intptr_t coefEnd = vecEnd % m_NumTablesX2;
         for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
             const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
-            intptr_t iCoef = 0;
+            intptr_t iCoef = coefEnd;
 
-            for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
+            for ( intptr_t dstX = vecEnd; dstX < m_DstW; ++dstX ) {
                 //       srcOX = floor(dstX / scale) + 1;
                 intptr_t srcOX = indices[dstX];
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
@@ -632,92 +696,8 @@ namespace iqo {
                 }
             }
         }
-        for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
+        for ( intptr_t dstX = vecEnd; dstX < m_DstW; ++dstX ) {
             dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX], deno[dstX]));
-        }
-
-        // main
-        intptr_t coefBegin = mainBegin % m_NumTablesX2;
-        __m256i s32x8NumCoefsOn2 = _mm256_set1_epi32(-numCoefsOn2);
-        __m256i u8x32table32to16L = _mm256_set_epi8( // 0x80 means to clear to zero
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00);
-        __m256i u8x32table32to16H = _mm256_set_epi8(
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
-        __m256i s16x16kBiasOn2 = _mm256_set1_epi16(kBias / 2);
-        for ( intptr_t dstX = mainBegin; dstX < mainEnd; dstX += kVecStep) {
-            intptr_t iCoef = coefBegin;
-            // nume             = 0;
-            __m256i s16x16Nume  = _mm256_setzero_si256();
-            // srcOX            = floor(dstX / scale) + 1;
-            __m256i s32x8SrcOXL = _mm256_loadu_si256((__m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcOXH = _mm256_loadu_si256((__m256i*)&indices[dstX + 8]);
-
-            for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
-                const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
-
-                // srcX             = srcOX - numCoefsOn2 + i;
-                __m256i s32x8Offset = _mm256_add_epi32(s32x8NumCoefsOn2, _mm256_set1_epi32(i));
-                __m256i s32x8SrcXL  = _mm256_add_epi32(s32x8SrcOXL, s32x8Offset);
-                __m256i s32x8SrcXH  = _mm256_add_epi32(s32x8SrcOXH, s32x8Offset);
-                // nume            += src[srcX] * coefs[iCoef];
-                __m256i s32x8SrcL   = _mm256_i32gather_epi32((const int32_t *)src, s32x8SrcXL, 2);
-                __m256i s32x8SrcH   = _mm256_i32gather_epi32((const int32_t *)src, s32x8SrcXH, 2);
-                __m256i s16x8SrcLSh = _mm256_shuffle_epi8(s32x8SrcL, u8x32table32to16L);
-                __m256i s16x8SrcHSh = _mm256_shuffle_epi8(s32x8SrcH, u8x32table32to16H);
-                __m256i s16x16SrcSh = _mm256_or_si256(s16x8SrcLSh, s16x8SrcHSh);
-                __m256i s16x16Src   = _mm256_permute4x64_epi64(s16x16SrcSh, _MM_SHUFFLE(3, 1, 2, 0));
-                __m256i s16x16Coefs = _mm256_loadu_si256((__m256i*)&coefs[iCoef]);
-                __m256i s16x16iNume = _mm256_mullo_epi16(s16x16Src, s16x16Coefs);
-
-                s16x16Nume = _mm256_add_epi16(s16x16Nume, s16x16iNume);
-            }
-
-            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, kBias));
-            __m256i s16x16Dst  = _mm256_srai_epi16(_mm256_add_epi16(s16x16Nume, s16x16kBiasOn2), kBiasBit);
-            __m128i s16x8DstLo = _mm256_castsi256_si128(s16x16Dst);
-            __m128i s16x8DstHi = _mm256_extractf128_si256(s16x16Dst, 1);
-            __m128i u8x16Dst   = _mm_packus_epi16(s16x8DstLo, s16x8DstHi);
-            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
-
-            // iCoef = dstX % m_NumTablesX2;
-            iCoef += kVecStep;
-            if ( iCoef == m_NumTablesX2 ) {
-                iCoef = 0;
-            }
-        }
-
-        // after main
-        intptr_t coefEnd = mainEnd % m_NumTablesX2;
-        intptr_t workOffset = -mainEnd + mainBegin;
-        for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
-            const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
-            intptr_t iCoef = coefEnd;
-
-            for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
-                //       srcOX = floor(dstX / scale) + 1;
-                intptr_t srcOX = indices[dstX];
-                intptr_t srcX = srcOX - numCoefsOn2 + i;
-                if ( 0 <= srcX && srcX < m_SrcW ) {
-                    int16_t coef = coefs[iCoef];
-                    nume[dstX + workOffset] += src[srcX] * coef;
-                    deno[dstX + workOffset] += coef;
-                }
-
-                // iCoef = dstX % m_NumTablesX2;
-                iCoef++;
-                if ( iCoef == m_NumTablesX2 ) {
-                    iCoef = 0;
-                }
-            }
-        }
-        for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX + workOffset], deno[dstX + workOffset]));
         }
     }
 
