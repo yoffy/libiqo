@@ -650,8 +650,8 @@ namespace iqo {
             0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
             0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
         __m256i s16x16kBiasOn2 = _mm256_set1_epi16(kBias / 2);
+        intptr_t iCoef = coefBegin;
         for ( intptr_t dstX = mainBegin; dstX < mainEnd; dstX += kVecStep) {
-            intptr_t iCoef = coefBegin;
             // nume             = 0;
             __m256i s16x16Nume  = _mm256_setzero_si256();
             // srcOX            = floor(dstX / scale) + 1;
