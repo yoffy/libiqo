@@ -317,8 +317,7 @@ namespace iqo {
             intptr_t srcSt, const uint8_t * src,
             intptr_t dstW, int16_t * __restrict dst,
             intptr_t srcOY,
-            const int16_t * coefs,
-            int16_t * __restrict nume);
+            const int16_t * coefs);
         void resizeX(const int16_t * src, uint8_t * __restrict dst);
         void resizeXborder(
             const int16_t * src, uint8_t * __restrict dst,
@@ -541,8 +540,7 @@ namespace iqo {
                     srcSt, &src[0],
                     m_SrcW, &m_Work[m_SrcW * dstY],
                     srcOY,
-                    coefs,
-                    &m_Nume[0]);
+                    coefs);
             }
             for ( intptr_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
                 //       srcOY = floor(dstY / scale) + 1
@@ -598,23 +596,38 @@ namespace iqo {
         intptr_t srcSt, const uint8_t * src,
         intptr_t dstW, int16_t * __restrict dst,
         intptr_t srcOY,
-        const int16_t * coefs,
-        int16_t * __restrict nume)
+        const int16_t * coefs)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
+        intptr_t vecLen = alignFloor(dstW, kVecStep);
 
-        std::memset(nume, 0, dstW * sizeof(*nume));
+        //std::memset(&nume[vecLen], 0, (dstW - vecLen) * sizeof(*nume));
 
-        for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
-            int16_t coef = coefs[i];
-            for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
+        for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
+            __m256i s16x16Nume = _mm256_setzero_si256();
+            for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                nume[dstX] += src[dstX + srcSt * srcY] * coef;
+                __m256i s16x16Coef = _mm256_set1_epi16(coefs[i]);
+                // nume[dstX] += src[dstX + srcSt*srcY] * coef;
+                __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
+                __m256i s16x16Src   = _mm256_cvtepu8_epi16(u8x16Src);
+                __m256i s16x16iNume = _mm256_mullo_epi16(s16x16Src, s16x16Coef);
+                s16x16Nume = _mm256_add_epi16(s16x16Nume, s16x16iNume);
             }
+
+            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX], kBias));
+            __m256i s16x16Dst = cvtFixedToInt(s16x16Nume);
+            _mm256_storeu_si256((__m256i*)&dst[dstX], s16x16Dst);
         }
 
-        for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
-            dst[dstX] = roundedDiv(nume[dstX], kBias);
+        for ( intptr_t dstX = vecLen; dstX < dstW; dstX++ ) {
+            int16_t nume = 0;
+            for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
+                int16_t  coef = coefs[i];
+                intptr_t srcY = srcOY - numCoefsOn2 + i;
+                nume += src[dstX + srcSt * srcY] * coef;
+            }
+            dst[dstX] = roundedDiv(nume, kBias);
         }
     }
 
