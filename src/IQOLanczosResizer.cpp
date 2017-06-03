@@ -187,12 +187,6 @@ namespace {
     }
 
     template<typename T>
-    T round(T x)
-    {
-        return std::floor(x + T(0.5));
-    }
-
-    template<typename T>
     T clamp(T lo, T hi, T v)
     {
         return std::max(lo, std::min(hi, v));
@@ -273,6 +267,40 @@ namespace {
         return _mm_packus_epi16(s16x8L, s16x8H);
     }
 
+    __m256i packus_epi32(__m256i lo, __m256i hi)
+    {
+        __m256i u16x16Perm = _mm256_packus_epi32(lo, hi);
+        return _mm256_permute4x64_epi64(u16x16Perm, _MM_SHUFFLE(3, 1, 2, 0));
+    }
+
+    //! (uint8_t)min(255, max(0, round(v)))
+    __m128i cvtrps_epu8(__m256i lo, __m256i hi)
+    {
+        __m256  f32x8L = _mm256_round_ps(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+        __m256  f32x8H = _mm256_round_ps(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+        __m256i s32x8L = _mm256_cvttps_epi32(f32x8L);
+        __m256i s32x8H = _mm256_cvttps_epi32(f32x8H);
+        __m256i u16x16 = packus_epi32(s32x8L, s32x8H);
+        return packus_epi16(u16x16);
+    }
+
+    //! (half float)v
+    int16_t cvtrss_sh(float v)
+    {
+        return _cvtss_sh(v, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+    }
+
+    //! (half float)v
+    __m128i cvtrps_ph(__m256 v)
+    {
+        return _mm256_cvtps_ph(v, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+    }
+
+    __m128 round_ss(__m128 v)
+    {
+        return _mm_round_ss(v, v, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+    }
+
 }
 
 namespace iqo {
@@ -287,23 +315,9 @@ namespace iqo {
         void resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * __restrict dst);
 
     private:
-        //! round(a / b)
-        static int16_t roundedDiv(int16_t a, int16_t b)
-        {
-            return (a + kFixed0_5) / b;
-        }
-
-        //! (int16_t)round(a)
-        static __m256i cvtFixedToInt(__m256i a)
-        {
-            // (a + kFixed0_5) / kBias
-            __m256i s16x16tmp = _mm256_add_epi16(a, _mm256_set1_epi16(kFixed0_5));
-            return _mm256_srai_epi16(s16x16tmp, kBiasBit);
-        }
-
-        //! dst[i] = src[i] * kBias / srcSum (src will be broken)
+        //! dst[i] = src[i] * / srcSum
         void adjustCoefs(
-            float * __restrict srcBegin, const float * srcEnd,
+            const float * srcBegin, const float * srcEnd,
             float srcSum,
             int16_t * __restrict dst);
 
@@ -329,11 +343,6 @@ namespace iqo {
         enum {
             //! for SIMD
             kVecStep  = 16, //!< int16x16
-            //! for fixed point
-            kBiasBit  = 6,
-            kBias     = 1 << kBiasBit,
-            kFixed1_0 = kBias,          //!< 1.0 in fixed point
-            kFixed0_5 = kFixed1_0 / 2,  //!< 0.5 in fixed point
         };
         intptr_t m_SrcW;
         intptr_t m_SrcH;
@@ -464,30 +473,16 @@ namespace iqo {
         }
     }
 
-    //! dst[i] = src[i] * kBias / srcSum (src will be broken)
+    //! dst[i] = src[i] / srcSum
     void LanczosResizer::Impl::adjustCoefs(
-        float * __restrict srcBegin, const float * srcEnd,
+        const float * srcBegin, const float * srcEnd,
         float srcSum,
         int16_t * __restrict dst)
     {
         size_t numCoefs = srcEnd - srcBegin;
-        int16_t dstSum = 0;
 
         for ( size_t i = 0; i < numCoefs; ++i ) {
-            dst[i] = round(srcBegin[i] * kBias / srcSum);
-            dstSum += dst[i];
-        }
-        while ( dstSum < kFixed1_0 ) {
-            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[m_NumCoefsX]));
-            dst[i]++;
-            srcBegin[i] = 0;
-            dstSum++;
-        }
-        while ( dstSum > kFixed1_0 ) {
-            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[m_NumCoefsX]));
-            dst[i]--;
-            srcBegin[i] = 0;
-            dstSum--;
+            dst[i] = cvtrss_sh(srcBegin[i] / srcSum);
         }
     }
 
@@ -578,17 +573,17 @@ namespace iqo {
         std::memset(deno, 0, dstW * sizeof(*deno));
 
         for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
-            int16_t coef = coefs[i];
+            float f32Coef = _cvtsh_ss(coefs[i]);
             for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
                 if ( 0 <= srcY && srcY < m_SrcH ) {
-                    nume[dstX] += src[dstX + srcSt * srcY] * coef;
-                    deno[dstX] += coef;
+                    nume[dstX] = cvtrss_sh(_cvtsh_ss(nume[dstX]) + src[dstX + srcSt * srcY] * f32Coef);
+                    deno[dstX] = cvtrss_sh(_cvtsh_ss(deno[dstX]) + f32Coef);
                 }
             }
         }
         for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
-            dst[dstX] = roundedDiv(nume[dstX], deno[dstX]);
+            dst[dstX] = cvtrss_sh(_cvtsh_ss(nume[dstX]) / _cvtsh_ss(deno[dstX]));
         }
     }
 
@@ -604,30 +599,35 @@ namespace iqo {
         //std::memset(&nume[vecLen], 0, (dstW - vecLen) * sizeof(*nume));
 
         for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
-            __m256i s16x16Nume = _mm256_setzero_si256();
+            __m256 f32x8Nume0 = _mm256_setzero_ps();
+            __m256 f32x8Nume1 = _mm256_setzero_ps();
             for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                __m256i s16x16Coef = _mm256_set1_epi16(coefs[i]);
+                __m256 f32x8Coef  = _mm256_set1_ps(_cvtsh_ss(coefs[i]));
                 // nume[dstX] += src[dstX + srcSt*srcY] * coef;
-                __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                __m256i s16x16Src   = _mm256_cvtepu8_epi16(u8x16Src);
-                __m256i s16x16iNume = _mm256_mullo_epi16(s16x16Src, s16x16Coef);
-                s16x16Nume = _mm256_add_epi16(s16x16Nume, s16x16iNume);
+                __m128i u8x16Src  = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
+                __m128i u8x8Src0  = u8x16Src;
+                __m128i u8x8Src1  = _mm_shuffle_epi32(u8x8Src0, _MM_SHUFFLE(3, 2, 3, 2));
+                __m256  f32x8Src0 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src0));
+                __m256  f32x8Src1 = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src1));
+                f32x8Nume0 = _mm256_fmadd_ps(f32x8Src0, f32x8Coef, f32x8Nume0);
+                f32x8Nume1 = _mm256_fmadd_ps(f32x8Src1, f32x8Coef, f32x8Nume1);
             }
 
-            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX], kBias));
-            __m256i s16x16Dst = cvtFixedToInt(s16x16Nume);
-            _mm256_storeu_si256((__m256i*)&dst[dstX], s16x16Dst);
+            // dst[dstX] = (half float)nume;
+            __m128i f16x8Dst0 = cvtrps_ph(f32x8Nume0);
+            __m128i f16x8Dst1 = cvtrps_ph(f32x8Nume1);
+            _mm256_storeu_si256((__m256i*)&dst[dstX], _mm256_set_m128i(f16x8Dst1, f16x8Dst0));
         }
 
         for ( intptr_t dstX = vecLen; dstX < dstW; dstX++ ) {
-            int16_t nume = 0;
+            float f32Nume = 0;
             for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
-                int16_t  coef = coefs[i];
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                nume += src[dstX + srcSt * srcY] * coef;
+                float f32Coef = _cvtsh_ss(coefs[i]);
+                f32Nume += src[dstX + srcSt * srcY] * f32Coef;
             }
-            dst[dstX] = roundedDiv(nume, kBias);
+            dst[dstX] = cvtrss_sh(f32Nume);
         }
     }
 
@@ -658,16 +658,16 @@ namespace iqo {
         for ( intptr_t dstX = begin; dstX < end; ++dstX ) {
             //       srcOX = floor(dstX / scale) + 1;
             intptr_t srcOX = indices[dstX];
-            int16_t  nume  = 0;
-            int16_t  deno  = 0;
+            float f32Nume  = 0;
+            float f32Deno  = 0;
 
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
                 const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
-                    int16_t coef = coefs[iCoef];
-                    nume += src[srcX] * coef;
-                    deno += coef;
+                    float f32Coef = _cvtsh_ss(coefs[iCoef]);
+                    f32Nume += _cvtsh_ss(src[srcX]) * f32Coef;
+                    f32Deno += f32Coef;
                 }
             }
 
@@ -677,7 +677,11 @@ namespace iqo {
                 iCoef = 0;
             }
 
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, deno));
+            float  f32Norm = f32Nume / f32Deno;
+            __m128 f32x1Norm = _mm_set_ss(f32Norm);
+            __m128 f32x1Dst  = round_ss(f32x1Norm);
+            int32_t s32Dst  = _mm_cvttss_si32(f32x1Dst);
+            dst[dstX] = uint8_t(clamp<int32_t>(0, 255, s32Dst));
         }
     }
 
@@ -705,7 +709,8 @@ namespace iqo {
         intptr_t iCoef = coefBegin;
         for ( intptr_t dstX = begin; dstX < end; dstX += kVecStep ) {
             // nume             = 0;
-            __m256i s16x16Nume  = _mm256_setzero_si256();
+            __m256  f32x8Nume0  = _mm256_setzero_ps();
+            __m256  f32x8Nume1  = _mm256_setzero_ps();
             // srcOX            = floor(dstX / scale) + 1;
             __m256i s32x8SrcOXL = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
             __m256i s32x8SrcOXH = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
@@ -722,17 +727,23 @@ namespace iqo {
                 __m256i s32x8SrcH   = _mm256_i32gather_epi32((const int32_t *)src, s32x8SrcXH, 2);
                 __m256i s16x8SrcLSh = _mm256_shuffle_epi8(s32x8SrcL, u8x32table32to16L); // X,1,X,0
                 __m256i s16x8SrcHSh = _mm256_shuffle_epi8(s32x8SrcH, u8x32table32to16H); // 3,X,2,X
-                __m256i s16x16SrcSh = _mm256_or_si256(s16x8SrcLSh, s16x8SrcHSh);         // 3,1,2,0
-                __m256i s16x16Src   = _mm256_permute4x64_epi64(s16x16SrcSh, _MM_SHUFFLE(3, 1, 2, 0));
-                __m256i s16x16Coefs = _mm256_loadu_si256((const __m256i *)&coefs[iCoef]);
-                __m256i s16x16iNume = _mm256_mullo_epi16(s16x16Src, s16x16Coefs);
-
-                s16x16Nume = _mm256_add_epi16(s16x16Nume, s16x16iNume);
+                __m256i f16x16SrcSh = _mm256_or_si256(s16x8SrcLSh, s16x8SrcHSh);         // 3,1,2,0
+                __m256i f16x16Src   = _mm256_permute4x64_epi64(f16x16SrcSh, _MM_SHUFFLE(3, 1, 2, 0));
+                __m128i f16x8Src0   = _mm256_castsi256_si128(f16x16Src);
+                __m128i f16x8Src1   = _mm256_extractf128_si256(f16x16Src, 1);
+                __m256  f32x8Src0   = _mm256_cvtph_ps(f16x8Src0);
+                __m256  f32x8Src1   = _mm256_cvtph_ps(f16x8Src1);
+                __m256i f16x16Coefs = _mm256_loadu_si256((const __m256i *)&coefs[iCoef]);
+                __m128i f16x8Coefs0 = _mm256_castsi256_si128(f16x16Coefs);
+                __m128i f16x8Coefs1 = _mm256_extractf128_si256(f16x16Coefs, 1);
+                __m256  f32x8Coefs0 = _mm256_cvtph_ps(f16x8Coefs0);
+                __m256  f32x8Coefs1 = _mm256_cvtph_ps(f16x8Coefs1);
+                f32x8Nume0 = _mm256_fmadd_ps(f32x8Src0, f32x8Coefs0, f32x8Nume0);
+                f32x8Nume1 = _mm256_fmadd_ps(f32x8Src1, f32x8Coefs1, f32x8Nume1);
             }
 
-            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, kBias));
-            __m256i s16x16Dst  = cvtFixedToInt(s16x16Nume);
-            __m128i u8x16Dst   = packus_epi16(s16x16Dst);
+            // dst[dstX] = clamp<float>(0, 255, round(nume));
+            __m128i u8x16Dst = cvtrps_epu8(f32x8Nume0, f32x8Nume1);
             _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
 
             // iCoef = dstX % m_NumTablesX2;
