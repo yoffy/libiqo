@@ -109,6 +109,7 @@ int main(int argc, char *argv[])
     uint8_t * dstU = &dstY[dstSizeY];
     uint8_t * dstV = &dstU[dstSizeU];
 
+for ( int i = 0; i < 128; i++ ) {
     // resize Y
     {
         iqo::LanczosResizer r(degree, srcW, srcH, dstW, dstH);
@@ -122,6 +123,7 @@ int main(int argc, char *argv[])
         r.resize(srcStX / 2, srcU, dstStX / 2, dstU);
         r.resize(srcStX / 2, srcV, dstStX / 2, dstV);
     }
+}
 
     // write output
     {
