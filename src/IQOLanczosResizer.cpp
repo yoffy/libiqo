@@ -265,13 +265,46 @@ namespace {
         intptr_t m_Y;
     };
 
-    //! (uint8_t)min(255, max(0, v))
-    __m128i packus_epi16(__m256i v)
+    __m128i cmpgt_epu8(__m128i a, __m128i b)
     {
-        __m128i s16x8L = _mm256_castsi256_si128(v);
-        __m128i s16x8H = _mm256_extractf128_si256(v, 1);
-        return _mm_packus_epi16(s16x8L, s16x8H);
+        const __m128i k0x80 = _mm_set1_epi8(0x80);
+        return _mm_cmpgt_epi8(_mm_xor_si128(a, k0x80), _mm_xor_si128(b, k0x80));
     }
+
+    __m128i gather_epi16(const int16_t * s16src, __m128i u16x8Indices)
+    {
+        const __m128i k16     = _mm_set1_epi8(16);
+        const __m128i k0x0100 = _mm_set1_epi16(0x0100); // 1, 0
+
+        __m128i u8x16Result = _mm_setzero_si128();
+        uint16_t iFirst = uint16_t(_mm_cvtsi128_si32(u16x8Indices));
+        __m128i u16x8First0 = _mm_shufflelo_epi16(u16x8Indices, _MM_SHUFFLE(0, 0, 0, 0));
+        __m128i u16x8First  = _mm_unpacklo_epi64(u16x8First0, u16x8First0);
+        u16x8Indices = _mm_sub_epi16(u16x8Indices, u16x8First);
+        // indices *= sizeof(uint16_t)
+        __m128i u16x8Indices_0 = _mm_slli_epi16(u16x8Indices, 1);
+        // u8x16Indices = { indices + 1, indices }
+        __m128i u16x8Indices_1 = _mm_or_si128(u16x8Indices_0, _mm_slli_epi16(u16x8Indices_0, 8));
+        __m128i u8x16Indices   = _mm_add_epi8(u16x8Indices_1, k0x0100);
+        const uint8_t * src = reinterpret_cast<const uint8_t *>(s16src + iFirst);
+
+        uint16_t b16IsDone = 0;
+        __m128i  u8x16IsIn = cmpgt_epu8(k16, u8x16Indices);
+        uint16_t b16IsIn   = _mm_movemask_epi8(u8x16IsIn);
+        while ( b16IsIn & ~b16IsDone ) {
+            __m128i u8x16Src  = _mm_loadu_si128((const __m128i*)src);
+            __m128i u8x16Perm = _mm_shuffle_epi8(u8x16Src, u8x16Indices);
+            u8x16Result  = _mm_blendv_epi8(u8x16Result, u8x16Perm, u8x16IsIn);
+            u8x16Indices = _mm_sub_epi8(u8x16Indices, k16);
+            src += 16;
+            b16IsDone |= b16IsIn;
+            u8x16IsIn  = cmpgt_epu8(k16, u8x16Indices);
+            b16IsIn    = _mm_movemask_epi8(u8x16IsIn);
+        }
+
+        return u8x16Result;
+    }
+
 
 }
 
@@ -294,11 +327,11 @@ namespace iqo {
         }
 
         //! (int16_t)round(a)
-        static __m256i cvtFixedToInt(__m256i a)
+        static __m128i cvtFixedToInt(__m128i a)
         {
             // (a + kFixed0_5) / kBias
-            __m256i s16x16tmp = _mm256_add_epi16(a, _mm256_set1_epi16(kFixed0_5));
-            return _mm256_srai_epi16(s16x16tmp, kBiasBit);
+            __m128i s16x8tmp = _mm_add_epi16(a, _mm_set1_epi16(kFixed0_5));
+            return _mm_srai_epi16(s16x8tmp, kBiasBit);
         }
 
         //! dst[i] = src[i] * kBias / srcSum (src will be broken)
@@ -350,7 +383,7 @@ namespace iqo {
         std::vector<int16_t> m_Work;
         std::vector<int16_t> m_Nume;
         std::vector<int16_t> m_Deno;
-        std::vector<int32_t> m_IndicesX;
+        std::vector<uint16_t> m_IndicesX;
     };
 
     LanczosResizer::LanczosResizer(
@@ -459,7 +492,7 @@ namespace iqo {
         m_IndicesX.reserve(m_DstW);
         m_IndicesX.resize(m_DstW);
         for ( intptr_t dstX = 0; dstX < m_DstW; ++dstX ) {
-            int32_t srcOX = dstX * m_SrcW / m_DstW + 1;
+            uint16_t srcOX = dstX * m_SrcW / m_DstW + 1;
             m_IndicesX[dstX] = srcOX;
         }
     }
@@ -601,23 +634,27 @@ namespace iqo {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
         intptr_t vecLen = alignFloor(dstW, kVecStep);
 
-        //std::memset(&nume[vecLen], 0, (dstW - vecLen) * sizeof(*nume));
-
         for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
-            __m256i s16x16Nume = _mm256_setzero_si256();
+            __m128i s16x8Nume0 = _mm_setzero_si128();
+            __m128i s16x8Nume1 = _mm_setzero_si128();
             for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                __m256i s16x16Coef = _mm256_set1_epi16(coefs[i]);
+                __m128i s16x8Coef = _mm_set1_epi16(coefs[i]);
                 // nume[dstX] += src[dstX + srcSt*srcY] * coef;
                 __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                __m256i s16x16Src   = _mm256_cvtepu8_epi16(u8x16Src);
-                __m256i s16x16iNume = _mm256_mullo_epi16(s16x16Src, s16x16Coef);
-                s16x16Nume = _mm256_add_epi16(s16x16Nume, s16x16iNume);
+                __m128i s16x8Src0   = _mm_cvtepu8_epi16(u8x16Src);
+                __m128i s16x8Src1   = _mm_unpackhi_epi8(u8x16Src, _mm_setzero_si128());
+                __m128i s16x8iNume0 = _mm_mullo_epi16(s16x8Src0, s16x8Coef);
+                __m128i s16x8iNume1 = _mm_mullo_epi16(s16x8Src1, s16x8Coef);
+                s16x8Nume0 = _mm_add_epi16(s16x8Nume0, s16x8iNume0);
+                s16x8Nume1 = _mm_add_epi16(s16x8Nume1, s16x8iNume1);
             }
 
             // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX], kBias));
-            __m256i s16x16Dst = cvtFixedToInt(s16x16Nume);
-            _mm256_storeu_si256((__m256i*)&dst[dstX], s16x16Dst);
+            __m128i s16x8Dst0 = cvtFixedToInt(s16x8Nume0);
+            __m128i s16x8Dst1 = cvtFixedToInt(s16x8Nume1);
+            _mm_storeu_si128((__m128i*)&dst[dstX + 0], s16x8Dst0);
+            _mm_storeu_si128((__m128i*)&dst[dstX + 8], s16x8Dst1);
         }
 
         for ( intptr_t dstX = vecLen; dstX < dstW; dstX++ ) {
@@ -651,7 +688,7 @@ namespace iqo {
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
         const int16_t * tablesX2 = &m_TablesX2[0];
-        const int32_t * indices = &m_IndicesX[0];
+        const uint16_t * indices = &m_IndicesX[0];
 
         intptr_t coefBegin = begin % m_NumTablesX2;
         intptr_t iCoef = coefBegin;
@@ -687,52 +724,40 @@ namespace iqo {
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
         const int16_t * tablesX2 = &m_TablesX2[0];
-        // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
-        const int32_t * indices = &m_IndicesX[0];
+        const uint16_t * indices = &m_IndicesX[0];
 
         intptr_t coefBegin = begin % m_NumTablesX2;
-        //__m256i s32x8NumCoefsOn2 = _mm256_set1_epi32(-numCoefsOn2);
-        __m256i u8x32table32to16L = _mm256_set_epi8( // 0x80 means to clear to zero
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00);
-        __m256i u8x32table32to16H = _mm256_set_epi8(
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00,
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80);
         intptr_t iCoef = coefBegin;
         for ( intptr_t dstX = begin; dstX < end; dstX += kVecStep ) {
             // nume             = 0;
-            __m256i s16x16Nume  = _mm256_setzero_si256();
+            __m128i s16x8Nume0  = _mm_setzero_si128();
+            __m128i s16x8Nume1  = _mm_setzero_si128();
             // srcOX            = floor(dstX / scale) + 1;
-            __m256i s32x8SrcOXL = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcOXH = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+            __m128i u16x8SrcOX0 = _mm_loadu_si128((const __m128i*)&indices[dstX + 0]);
+            __m128i u16x8SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX + 8]);
 
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
                 const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
 
                 // srcX             = srcOX - numCoefsOn2 + i;
-                __m256i s32x8Offset = _mm256_set1_epi32(i - numCoefsOn2);
-                __m256i s32x8SrcXL  = _mm256_add_epi32(s32x8SrcOXL, s32x8Offset);
-                __m256i s32x8SrcXH  = _mm256_add_epi32(s32x8SrcOXH, s32x8Offset);
+                __m128i s16x8Offset = _mm_set1_epi16(i - numCoefsOn2);
+                __m128i u16x8SrcX0  = _mm_add_epi16(u16x8SrcOX0, s16x8Offset);
+                __m128i u16x8SrcX1  = _mm_add_epi16(u16x8SrcOX1, s16x8Offset);
                 // nume            += src[srcX] * coefs[iCoef];
-                __m256i s32x8SrcL   = _mm256_i32gather_epi32((const int32_t *)src, s32x8SrcXL, 2);
-                __m256i s32x8SrcH   = _mm256_i32gather_epi32((const int32_t *)src, s32x8SrcXH, 2);
-                __m256i s16x8SrcLSh = _mm256_shuffle_epi8(s32x8SrcL, u8x32table32to16L); // X,1,X,0
-                __m256i s16x8SrcHSh = _mm256_shuffle_epi8(s32x8SrcH, u8x32table32to16H); // 3,X,2,X
-                __m256i s16x16SrcSh = _mm256_or_si256(s16x8SrcLSh, s16x8SrcHSh);         // 3,1,2,0
-                __m256i s16x16Src   = _mm256_permute4x64_epi64(s16x16SrcSh, _MM_SHUFFLE(3, 1, 2, 0));
-                __m256i s16x16Coefs = _mm256_loadu_si256((const __m256i *)&coefs[iCoef]);
-                __m256i s16x16iNume = _mm256_mullo_epi16(s16x16Src, s16x16Coefs);
+                __m128i s16x8Src0   = gather_epi16((const int16_t *)src, u16x8SrcX0);
+                __m128i s16x8Src1   = gather_epi16((const int16_t *)src, u16x8SrcX1);
+                __m128i s16x8Coefs  = _mm_loadu_si128((const __m128i *)&coefs[iCoef]);
+                __m128i s16x8iNume0 = _mm_mullo_epi16(s16x8Src0, s16x8Coefs);
+                __m128i s16x8iNume1 = _mm_mullo_epi16(s16x8Src1, s16x8Coefs);
 
-                s16x16Nume = _mm256_add_epi16(s16x16Nume, s16x16iNume);
+                s16x8Nume0 = _mm_add_epi16(s16x8Nume0, s16x8iNume0);
+                s16x8Nume1 = _mm_add_epi16(s16x8Nume1, s16x8iNume1);
             }
 
             // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, kBias));
-            __m256i s16x16Dst  = cvtFixedToInt(s16x16Nume);
-            __m128i u8x16Dst   = packus_epi16(s16x16Dst);
+            __m128i s16x8Dst0 = cvtFixedToInt(s16x8Nume0);
+            __m128i s16x8Dst1 = cvtFixedToInt(s16x8Nume1);
+            __m128i u8x16Dst  = _mm_packus_epi16(s16x8Dst0, s16x8Dst1);
             _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
 
             // iCoef = dstX % m_NumTablesX2;

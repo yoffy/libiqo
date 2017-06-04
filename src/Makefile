@@ -1,6 +1,6 @@
 TARGET=libiqo.a
 OBJS=IQOLanczosResizer.o
-OPTFLAGS=-Ofast -march=native -D NDEBUG
+OPTFLAGS=-Ofast -march=penryn -D NDEBUG
 CXXFLAGS=-std=c++98 -Wall -Wextra -fno-exceptions -g $(OPTFLAGS) -I ../include
 
 .PHONY: all
