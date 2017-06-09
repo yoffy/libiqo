@@ -288,9 +288,9 @@ namespace {
         __m128i u8x16Indices   = _mm_add_epi8(u16x8Indices_1, k0x0100);
         const uint8_t * src = reinterpret_cast<const uint8_t *>(s16src + iFirst);
 
-        uint16_t b16IsDone = 0;
+        uint32_t b16IsDone = 0;
         __m128i  u8x16IsIn = cmpgt_epu8(k16, u8x16Indices);
-        uint16_t b16IsIn   = _mm_movemask_epi8(u8x16IsIn);
+        uint32_t b16IsIn   = _mm_movemask_epi8(u8x16IsIn);
         while ( b16IsIn & ~b16IsDone ) {
             __m128i u8x16Src  = _mm_loadu_si128((const __m128i*)src);
             __m128i u8x16Perm = _mm_shuffle_epi8(u8x16Src, u8x16Indices);
