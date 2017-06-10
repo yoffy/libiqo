@@ -383,8 +383,8 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * m_DstH);
-        m_Work.resize(m_SrcW * m_DstH);
+        m_Work.reserve(m_SrcW);
+        m_Work.resize(m_SrcW);
         size_t maxW = std::max(m_SrcW, m_DstW);
         m_Nume.reserve(maxW);
         m_Nume.resize(maxW);
@@ -421,11 +421,14 @@ namespace iqo {
     void LanczosResizer::Impl::resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * dst)
     {
         // resize
+        int16_t * work = &m_Work[0];
+
         if ( m_SrcH == m_DstH ) {
             for ( intptr_t y = 0; y < m_SrcH; ++y ) {
                 for ( intptr_t x = 0; x < m_SrcW; ++x ) {
                     m_Work[m_SrcW * y + x] = src[srcSt * y + x];
                 }
+                resizeX(work, &dst[dstSt * y]);
             }
         } else {
             // vertical
@@ -449,10 +452,11 @@ namespace iqo {
                 }
                 resizeYborder(
                     srcSt, &src[0],
-                    m_SrcW, &m_Work[m_SrcW * dstY],
+                    m_SrcW, work,
                     srcOY,
                     coefs,
                     &m_Nume[0], &m_Deno[0]);
+                resizeX(work, &dst[dstSt * dstY]);
             }
             for ( intptr_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
                 //       srcOY = floor(dstY / scale) + 1
@@ -465,10 +469,11 @@ namespace iqo {
                 }
                 resizeYmain(
                     srcSt, &src[0],
-                    m_SrcW, &m_Work[m_SrcW * dstY],
+                    m_SrcW, work,
                     srcOY,
                     coefs,
                     &m_Nume[0]);
+                resizeX(work, &dst[dstSt * dstY]);
             }
             for ( intptr_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
                 //       srcOY = floor(dstY / scale) + 1
@@ -481,15 +486,12 @@ namespace iqo {
                 }
                 resizeYborder(
                     srcSt, &src[0],
-                    m_SrcW, &m_Work[m_SrcW * dstY],
+                    m_SrcW, work,
                     srcOY,
                     coefs,
                     &m_Nume[0], &m_Deno[0]);
+                resizeX(work, &dst[dstSt * dstY]);
             }
-        }
-        for ( intptr_t y = 0; y < m_DstH; ++y ) {
-            // horizontal
-            resizeX(&m_Work[m_SrcW * y], &dst[dstSt * y]);
         }
     }
 
