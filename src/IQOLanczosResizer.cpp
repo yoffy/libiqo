@@ -249,6 +249,31 @@ namespace {
         intptr_t m_Y;
     };
 
+    //! (uint8_t)min(255, max(0, v))
+    __m128i packus_epi16(__m256i v)
+    {
+        __m128i s16x8L = _mm256_castsi256_si128(v);
+        __m128i s16x8H = _mm256_extractf128_si256(v, 1);
+        return _mm_packus_epi16(s16x8L, s16x8H);
+    }
+
+    __m256i packus_epi32(__m256i lo, __m256i hi)
+    {
+        __m256i u16x16Perm = _mm256_packus_epi32(lo, hi);
+        return _mm256_permute4x64_epi64(u16x16Perm, _MM_SHUFFLE(3, 1, 2, 0));
+    }
+
+    //! (uint8_t)min(255, max(0, round(v)))
+    __m128i cvtrps_epu8(__m256i lo, __m256i hi)
+    {
+        __m256  f32x8L = _mm256_round_ps(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+        __m256  f32x8H = _mm256_round_ps(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+        __m256i s32x8L = _mm256_cvttps_epi32(f32x8L);
+        __m256i s32x8H = _mm256_cvttps_epi32(f32x8H);
+        __m256i u16x16 = packus_epi32(s32x8L, s32x8H);
+        return packus_epi16(u16x16);
+    }
+
 }
 
 namespace iqo {
@@ -265,16 +290,23 @@ namespace iqo {
     private:
         void resizeYborder(
             intptr_t srcSt, const uint8_t * src,
-            intptr_t dstSt, intptr_t dstW, float * dst,
-            intptr_t srcOY, intptr_t dstY,
+            intptr_t dstW, float * dst,
+            intptr_t srcOY,
             const float * coefs,
             float * deno);
         void resizeYmain(
             intptr_t srcSt, const uint8_t * src,
-            intptr_t dstSt, intptr_t dstW, float * dst,
-            intptr_t srcOY, intptr_t dstY,
+            intptr_t dstW, float * dst,
+            intptr_t srcOY,
             const float * coefs);
         void resizeX(const float * src, uint8_t * dst, float * nume, float * deno);
+        void resizeXborder(
+            const float * src, uint8_t * dst,
+            float * __restrict nume, float * __restrict deno,
+            intptr_t begin, intptr_t end);
+        void resizeXmain(
+            const float * src, uint8_t * dst,
+            intptr_t begin, intptr_t end);
 
         intptr_t m_SrcW;
         intptr_t m_SrcH;
@@ -390,8 +422,8 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * m_DstH);
-        m_Work.resize(m_SrcW * m_DstH);
+        m_Work.reserve(m_SrcW);
+        m_Work.resize(m_SrcW);
         size_t maxW = std::max(m_SrcW, m_DstW);
         m_Nume.reserve(maxW);
         m_Nume.resize(maxW);
@@ -399,9 +431,9 @@ namespace iqo {
         m_Deno.resize(maxW);
     }
 
-    void LanczosResizer::Impl::resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * dst)
+    void LanczosResizer::Impl::resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * __restrict dst)
     {
-        float * tmp = &m_Work[0];
+        float * work = &m_Work[0];
         float * nume = &m_Nume[0];
         float * deno = &m_Deno[0];
 
@@ -409,8 +441,9 @@ namespace iqo {
         if ( m_SrcH == m_DstH ) {
             for ( intptr_t y = 0; y < m_SrcH; ++y ) {
                 for ( intptr_t x = 0; x < m_SrcW; ++x ) {
-                    tmp[srcSt * y + x] = src[srcSt * y + x];
+                    work[x] = src[srcSt * y + x];
                 }
+                resizeX(work, &dst[dstSt * y], nume, deno);
             }
         } else {
             // vertical
@@ -434,10 +467,11 @@ namespace iqo {
                 }
                 resizeYborder(
                     srcSt, &src[0],
-                    m_SrcW, m_SrcW, &tmp[0],
-                    srcOY, dstY,
+                    m_SrcW, work,
+                    srcOY,
                     coefs,
                     deno);
+                resizeX(work, &dst[dstSt * dstY], nume, deno);
             }
             for ( intptr_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
                 //       srcOY = floor(dstY / scale) + 1
@@ -450,9 +484,10 @@ namespace iqo {
                 }
                 resizeYmain(
                     srcSt, &src[0],
-                    m_SrcW, m_SrcW, &tmp[0],
-                    srcOY, dstY,
+                    m_SrcW, work,
+                    srcOY,
                     coefs);
+                resizeX(work, &dst[dstSt * dstY], nume, deno);
             }
             for ( intptr_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
                 //       srcOY = floor(dstY / scale) + 1
@@ -465,27 +500,24 @@ namespace iqo {
                 }
                 resizeYborder(
                     srcSt, &src[0],
-                    m_SrcW, m_SrcW, &tmp[0],
-                    srcOY, dstY,
+                    m_SrcW, work,
+                    srcOY,
                     coefs,
                     deno);
+                resizeX(work, &dst[dstSt * dstY], nume, deno);
             }
-        }
-        // horizontal
-        for ( intptr_t y = 0; y < m_DstH; ++y ) {
-            resizeX(&tmp[srcSt * y], &dst[dstSt * y], nume, deno);
         }
     }
 
     void LanczosResizer::Impl::resizeYborder(
         intptr_t srcSt, const uint8_t * src,
-        intptr_t dstSt, intptr_t dstW, float * dst,
-        intptr_t srcOY, intptr_t dstY,
+        intptr_t dstW, float * __restrict dst,
+        intptr_t srcOY,
         const float * coefs,
-        float * deno)
+        float * __restrict deno)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
-        float * nume = &dst[dstSt * dstY];
+        float * nume = dst;
 
         std::memset(nume, 0, dstW * sizeof(*nume));
         std::memset(deno, 0, dstW * sizeof(*deno));
@@ -508,12 +540,12 @@ namespace iqo {
 
     void LanczosResizer::Impl::resizeYmain(
         intptr_t srcSt, const uint8_t * src,
-        intptr_t dstSt, intptr_t dstW, float * dst,
-        intptr_t srcOY, intptr_t dstY,
+        intptr_t dstW, float * __restrict dst,
+        intptr_t srcOY,
         const float * coefs)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
-        float * nume = &dst[dstSt * dstY];
+        float * nume = dst;
 
         std::memset(nume, 0, dstW * sizeof(*nume));
 
@@ -526,27 +558,38 @@ namespace iqo {
         }
     }
 
-    void LanczosResizer::Impl::resizeX(const float * src, uint8_t * dst, float * nume, float * deno)
+    void LanczosResizer::Impl::resizeX(const float * src, uint8_t * dst, float * nume, float * __restrict deno)
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
-        const float * tablesX = &m_TablesX[0];
         // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
         intptr_t mainBegin = ((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW;
         intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcW - numCoefsOn2) * m_DstW / m_SrcW);
         intptr_t mainLen = (mainEnd - mainBegin) & intptr_t(-16);
         mainEnd = mainBegin + mainLen;
-        LinearIterator iSrcOX(m_DstW, m_SrcW);
-        int32_t * indices = &m_IndicesX[0];
 
         std::memset(nume, 0, m_DstW * sizeof(*nume));
         std::memset(deno, 0, m_DstW * sizeof(*deno));
 
-        // before main
+        resizeXborder(src, dst, nume, deno, 0, mainBegin);
+        resizeXmain(src, dst, mainBegin, mainEnd);
+        resizeXborder(src, dst, nume, deno, mainEnd, m_DstW);
+    }
+
+
+    void LanczosResizer::Impl::resizeXborder(
+        const float * src, uint8_t * dst,
+        float * __restrict nume, float * __restrict deno,
+        intptr_t begin, intptr_t end)
+    {
+        intptr_t numCoefsOn2 = m_NumCoefsX / 2;
+        const float * tablesX = &m_TablesX[0];
+        int32_t * indices = &m_IndicesX[0];
+
         for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
             int32_t offset = -numCoefsOn2 + 1 + i;
             const float * coefs = &tablesX[i * m_DstW];
 
-            for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
+            for ( intptr_t dstX = begin; dstX < end; ++dstX ) {
                 //       srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
                 intptr_t srcX = indices[dstX] + offset;
 
@@ -556,72 +599,48 @@ namespace iqo {
                 }
             }
         }
-        for ( intptr_t dstX = 0; dstX < mainBegin; ++dstX ) {
+        for ( intptr_t dstX = begin; dstX < end; ++dstX ) {
             dst[dstX] = clamp<int>(0, 255, round(nume[dstX] / deno[dstX]));
         }
+    }
 
-        // main
-        for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
-            int32_t offset = -numCoefsOn2 + 1 + i;
-            const float * coefs = &tablesX[i * m_DstW];
-            __m256i vOffset   = _mm256_set1_epi32(offset);
+    void LanczosResizer::Impl::resizeXmain(
+        const float * src, uint8_t * __restrict dst,
+        intptr_t begin, intptr_t end)
+    {
+        intptr_t numCoefsOn2 = m_NumCoefsX / 2;
+        const float * tablesX = &m_TablesX[0];
+        int32_t * indices = &m_IndicesX[0];
 
-            for ( intptr_t dstX = mainBegin; dstX < mainEnd; dstX += 16 ) {
-                //       srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
+        for ( intptr_t dstX = begin; dstX < end; dstX += 16 ) {
+            //      nume   = 0;
+            __m256  vNume0 = _mm256_setzero_ps();
+            __m256  vNume8 = _mm256_setzero_ps();
+            //       srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
+            __m256i vSrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
+            __m256i vSrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+
+            for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
+                const float * coefs = &tablesX[i * m_DstW];
+                __m256i vOffset   = _mm256_set1_epi32(i - numCoefsOn2 + 1);
+
                 //intptr_t srcX = indices[dstX + j] + offset;
-                __m256i vSrcX0 = _mm256_add_epi32(_mm256_loadu_si256((const __m256i*)&indices[dstX + 0]), vOffset);
-                __m256i vSrcX8 = _mm256_add_epi32(_mm256_loadu_si256((const __m256i*)&indices[dstX + 8]), vOffset);
+                __m256i vSrcX0 = _mm256_add_epi32(vSrcOX0, vOffset);
+                __m256i vSrcX8 = _mm256_add_epi32(vSrcOX8, vOffset);
 
                 //nume[dstX + j] += src[srcX] * coefs[dstX + j];
                 __m256  vSrc0     = _mm256_i32gather_ps(src, vSrcX0, sizeof(float));
                 __m256  vSrc8     = _mm256_i32gather_ps(src, vSrcX8, sizeof(float));
                 __m256  vCoefs0   = _mm256_loadu_ps(&coefs[dstX + 0]);
                 __m256  vCoefs8   = _mm256_loadu_ps(&coefs[dstX + 8]);
-                __m256  vNume0    = _mm256_loadu_ps(&nume[dstX + 0]);
-                __m256  vNume8    = _mm256_loadu_ps(&nume[dstX + 8]);
                 vNume0 = _mm256_fmadd_ps(vSrc0, vCoefs0, vNume0);
                 vNume8 = _mm256_fmadd_ps(vSrc8, vCoefs8, vNume8);
-                _mm256_storeu_ps(&nume[dstX + 0], vNume0);
-                _mm256_storeu_ps(&nume[dstX + 8], vNume8);
             }
-        }
-        for ( intptr_t dstX = mainBegin; dstX < mainEnd; dstX += 16 ) {
-            //dst[dstX] = clamp<int>(0, 255, round(nume[dstX]));
-            __m128i vNumeShuffle = _mm_set_epi8(
-                15, 14, 13, 12,   7,  6,  5,  4,
-                11, 10,  9,  8,   3,  2,  1,  0);
-            __m256 vNume0 = _mm256_loadu_ps(&nume[dstX + 0]);
-            __m256 vNume8 = _mm256_loadu_ps(&nume[dstX + 8]);
-            vNume0 = _mm256_round_ps(vNume0, _MM_FROUND_TO_NEAREST_INT);
-            vNume8 = _mm256_round_ps(vNume8, _MM_FROUND_TO_NEAREST_INT);
-            __m256i v256Nume0 = _mm256_cvttps_epi32(vNume0);                // uint32_t 7 6 5 4 3 2 1 0
-            __m256i v256Nume8 = _mm256_cvttps_epi32(vNume8);                // uint32_t F E D C B A 9 8
-            __m256i v256Nume  = _mm256_packus_epi32(v256Nume0, v256Nume8);  // uint16_t FEDC7654BA983210
-            __m128i v128Nume0 = _mm256_extracti128_si256(v256Nume, 0);      // uint16_t BA983210
-            __m128i v128Nume8 = _mm256_extracti128_si256(v256Nume, 1);      // uint16_t FEDC7654
-            __m128i v128Nume  = _mm_packus_epi16(v128Nume0, v128Nume8);     // uint8_t  FEDC7654BA983210
-            __m128i vNume = _mm_shuffle_epi8(v128Nume, vNumeShuffle);       // uint8_t  FEDCBA9876543210
+
+            __m128i vNume = cvtrps_epu8(vNume0, vNume8);
             _mm_storeu_si128((__m128i*)&dst[dstX], vNume);
         }
-
-        // after main
-        for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
-            int32_t offset = -numCoefsOn2 + 1 + i;
-            const float * coefs = &tablesX[i * m_DstW];
-
-            for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
-                //       srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
-                intptr_t srcX = indices[dstX] + offset;
-
-                if ( 0 <= srcX && srcX < m_SrcW ) {
-                    nume[dstX] += src[srcX] * coefs[dstX];
-                    deno[dstX] += coefs[dstX];
-                }
-            }
-        }
-        for ( intptr_t dstX = mainEnd; dstX < m_DstW; ++dstX ) {
-            dst[dstX] = clamp<int>(0, 255, round(nume[dstX] / deno[dstX]));
-        }
     }
+
 
 }
