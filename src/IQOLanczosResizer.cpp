@@ -375,10 +375,8 @@ namespace iqo {
         intptr_t m_NumCoefsX;
         intptr_t m_NumCoefsY;
         intptr_t m_NumTablesX;
-        intptr_t m_NumTablesX2;
         intptr_t m_NumTablesY;
-        std::vector<int16_t> m_TablesX;   //!< Lanczos table * m_NumTablesX
-        std::vector<int16_t> m_TablesX2;  //!< Transposed
+        std::vector<int16_t> m_TablesX;   //!< Lanczos table * numTablesX (interleaved)
         std::vector<int16_t> m_TablesY;   //!< Lanczos table * m_NumTablesY
         std::vector<int16_t> m_Work;
         std::vector<int16_t> m_Nume;
@@ -439,22 +437,23 @@ namespace iqo {
             size_t degree2 = std::max<size_t>(1, degree / pxScale);
             m_NumCoefsY = 2 * intptr_t(std::ceil((degree2 * m_SrcH) / double(m_DstH)));
         }
-        m_NumTablesX = m_DstW / gcd(m_SrcW, m_DstW);
-        m_NumTablesX2 = std::min(m_DstW, lcm(m_NumTablesX, kVecStep));
+        intptr_t numTablesX = m_DstW / gcd(m_SrcW, m_DstW);
+        m_NumTablesX = std::min(m_DstW, lcm(numTablesX, kVecStep));
         m_NumTablesY = m_DstH / gcd(m_SrcH, m_DstH);
-        m_TablesX.reserve(m_NumCoefsX * m_NumTablesX);
-        m_TablesX.resize(m_NumCoefsX * m_NumTablesX);
-        m_TablesX2.reserve(m_NumTablesX2 * m_NumCoefsX);
-        m_TablesX2.resize(m_NumTablesX2 * m_NumCoefsX);
+        m_TablesX.reserve(m_NumCoefsX * numTablesX);
+        m_TablesX.resize(m_NumCoefsX * numTablesX);
+        m_TablesX.reserve(m_NumTablesX * m_NumCoefsX);
+        m_TablesX.resize(m_NumTablesX * m_NumCoefsX);
         m_TablesY.reserve(m_NumCoefsY * m_NumTablesY);
         m_TablesY.resize(m_NumCoefsY * m_NumTablesY);
 
         // X coefs
-        std::vector<float> tablesX(m_NumCoefsX);
-        for ( intptr_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
-            int16_t * table = &m_TablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setLanczosTable(degree, m_SrcW, m_DstW, dstX, pxScale, m_NumCoefsX, &tablesX[0]);
-            adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, &table[0]);
+        std::vector<int16_t> tablesX(m_NumCoefsX * numTablesX);
+        std::vector<float> tableX(m_NumCoefsX);
+        for ( intptr_t dstX = 0; dstX < numTablesX; ++dstX ) {
+            int16_t * table = &tablesX[dstX * m_NumCoefsX];
+            double sumCoefs = setLanczosTable(degree, m_SrcW, m_DstW, dstX, pxScale, m_NumCoefsX, &tableX[0]);
+            adjustCoefs(&tableX[0], &tableX[m_NumCoefsX], sumCoefs, &table[0]);
         }
         // transpose and unroll X coefs
         //
@@ -466,9 +465,9 @@ namespace iqo {
         //                      :
         //          A3B3C3A3 B3C3A3B3 C3A3B3C3
         for ( intptr_t iCoef = 0; iCoef < m_NumCoefsX; ++iCoef ) {
-            for ( intptr_t dstX = 0; dstX < m_NumTablesX2; ++dstX ) {
-                intptr_t i = dstX % m_NumTablesX * m_NumCoefsX + iCoef;
-                m_TablesX2[iCoef * m_NumTablesX2 + dstX] = m_TablesX[i];
+            for ( intptr_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
+                intptr_t i = dstX % numTablesX * m_NumCoefsX + iCoef;
+                m_TablesX[iCoef * m_NumTablesX + dstX] = tablesX[i];
             }
         }
         // Y coefs
@@ -637,12 +636,14 @@ namespace iqo {
         intptr_t vecLen = alignFloor(dstW, kVecStep);
 
         for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
+            // nume = 0
             __m128i s16x8Nume0 = _mm_setzero_si128();
             __m128i s16x8Nume1 = _mm_setzero_si128();
             for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
+                // coef = coefs[i];
                 __m128i s16x8Coef = _mm_set1_epi16(coefs[i]);
-                // nume[dstX] += src[dstX + srcSt*srcY] * coef;
+                // nume += src[dstX + srcSt*srcY] * coef;
                 __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
                 __m128i s16x8Src0   = _mm_cvtepu8_epi16(u8x16Src);
                 __m128i s16x8Src1   = _mm_unpackhi_epi8(u8x16Src, _mm_setzero_si128());
@@ -652,7 +653,7 @@ namespace iqo {
                 s16x8Nume1 = _mm_add_epi16(s16x8Nume1, s16x8iNume1);
             }
 
-            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume[dstX], kBias));
+            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, kBias));
             __m128i s16x8Dst0 = cvtFixedToInt(s16x8Nume0);
             __m128i s16x8Dst1 = cvtFixedToInt(s16x8Nume1);
             _mm_storeu_si128((__m128i*)&dst[dstX + 0], s16x8Dst0);
@@ -662,8 +663,8 @@ namespace iqo {
         for ( intptr_t dstX = vecLen; dstX < dstW; dstX++ ) {
             int16_t nume = 0;
             for ( intptr_t i = 0; i < m_NumCoefsY; ++i ) {
-                int16_t  coef = coefs[i];
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
+                int16_t  coef = coefs[i];
                 nume += src[dstX + srcSt * srcY] * coef;
             }
             dst[dstX] = roundedDiv(nume, kBias);
@@ -689,10 +690,10 @@ namespace iqo {
         intptr_t begin, intptr_t end)
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
-        const int16_t * tablesX2 = &m_TablesX2[0];
+        const int16_t *  tablesX = &m_TablesX[0];
         const uint16_t * indices = &m_IndicesX[0];
 
-        intptr_t coefBegin = begin % m_NumTablesX2;
+        intptr_t coefBegin = begin % m_NumTablesX;
         intptr_t iCoef = coefBegin;
         for ( intptr_t dstX = begin; dstX < end; ++dstX ) {
             //       srcOX = floor(dstX / scale) + 1;
@@ -701,7 +702,7 @@ namespace iqo {
             int16_t  deno  = 0;
 
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
-                const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
+                const int16_t * coefs = &tablesX[i * m_NumTablesX];
                 intptr_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
                     int16_t coef = coefs[iCoef];
@@ -710,9 +711,9 @@ namespace iqo {
                 }
             }
 
-            // iCoef = dstX % m_NumTablesX2;
+            // iCoef = dstX % m_NumTablesX;
             iCoef++;
-            if ( iCoef == m_NumTablesX2 ) {
+            if ( iCoef == m_NumTablesX ) {
                 iCoef = 0;
             }
 
@@ -725,10 +726,10 @@ namespace iqo {
         intptr_t begin, intptr_t end)
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
-        const int16_t * tablesX2 = &m_TablesX2[0];
+        const int16_t *  tablesX = &m_TablesX[0];
         const uint16_t * indices = &m_IndicesX[0];
 
-        intptr_t coefBegin = begin % m_NumTablesX2;
+        intptr_t coefBegin = begin % m_NumTablesX;
         intptr_t iCoef = coefBegin;
         for ( intptr_t dstX = begin; dstX < end; dstX += kVecStep ) {
             // nume             = 0;
@@ -739,19 +740,19 @@ namespace iqo {
             __m128i u16x8SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX + 8]);
 
             for ( intptr_t i = 0; i < m_NumCoefsX; ++i ) {
-                const int16_t * coefs = &tablesX2[i * m_NumTablesX2];
+                const int16_t * coefs = &tablesX[i * m_NumTablesX];
 
                 // srcX             = srcOX - numCoefsOn2 + i;
                 __m128i s16x8Offset = _mm_set1_epi16(i - numCoefsOn2);
                 __m128i u16x8SrcX0  = _mm_add_epi16(u16x8SrcOX0, s16x8Offset);
                 __m128i u16x8SrcX1  = _mm_add_epi16(u16x8SrcOX1, s16x8Offset);
-                // nume            += src[srcX] * coefs[iCoef];
+                // iNume            += src[srcX] * coefs[iCoef];
                 __m128i s16x8Src0   = gather_epi16((const int16_t *)src, u16x8SrcX0);
                 __m128i s16x8Src1   = gather_epi16((const int16_t *)src, u16x8SrcX1);
                 __m128i s16x8Coefs  = _mm_loadu_si128((const __m128i *)&coefs[iCoef]);
                 __m128i s16x8iNume0 = _mm_mullo_epi16(s16x8Src0, s16x8Coefs);
                 __m128i s16x8iNume1 = _mm_mullo_epi16(s16x8Src1, s16x8Coefs);
-
+                // nume   += iNume
                 s16x8Nume0 = _mm_add_epi16(s16x8Nume0, s16x8iNume0);
                 s16x8Nume1 = _mm_add_epi16(s16x8Nume1, s16x8iNume1);
             }
@@ -762,9 +763,9 @@ namespace iqo {
             __m128i u8x16Dst  = _mm_packus_epi16(s16x8Dst0, s16x8Dst1);
             _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
 
-            // iCoef = dstX % m_NumTablesX2;
+            // iCoef = dstX % m_NumTablesX;
             iCoef += kVecStep;
-            if ( iCoef == m_NumTablesX2 ) {
+            if ( iCoef == m_NumTablesX ) {
                 iCoef = 0;
             }
         }
