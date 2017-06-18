@@ -66,7 +66,7 @@ namespace {
     //! @param srcLen     Number of pixels of the source image
     //! @param dstLen     Number of pixels of the destination image
     //! @param dstOffset  The coordinate of the destination image
-    //! @param pxScale  Scale of a pixel (ex. 2 when U plane of YUV420 image)
+    //! @param pxScale    Scale of a pixel (ex. 2 when U plane of YUV420 image)
     //! @param n          Size of table
     //! @param fTable     The table
     //! @return Sum of the table
@@ -251,7 +251,7 @@ namespace {
     }
 
     //! (uint8_t)min(255, max(0, round(v)))
-    __m128i cvtrps_epu8(__m256i lo, __m256i hi)
+    __m128i cvtrps_epu8(__m256 lo, __m256 hi)
     {
         __m256  f32x8L = _mm256_round_ps(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
         __m256  f32x8H = _mm256_round_ps(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
@@ -296,7 +296,7 @@ namespace iqo {
 
         enum {
             //! for SIMD
-            kVecStep  = 16, //!< __m256 x 2 
+            kVecStep  = 16, //!< __m256 x 2
         };
         intptr_t m_SrcW;
         intptr_t m_SrcH;
@@ -486,6 +486,14 @@ namespace iqo {
         }
     }
 
+    //! resize vertical (border loop)
+    //!
+    //! @param srcSt  Stride in src (in byte)
+    //! @param src    A row of source
+    //! @param dst    A row of destination
+    //! @param srcOY  The origin of current line
+    //! @param coefs  The coefficients
+    //! @param deno   A row of denominator (work memory)
     void LanczosResizer::Impl::resizeYborder(
         intptr_t srcSt, const uint8_t * src,
         intptr_t dstW, float * __restrict dst,
@@ -503,7 +511,7 @@ namespace iqo {
             float coef = coefs[i];
             for ( intptr_t dstX = 0; dstX < dstW; ++dstX ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
-                
+
                 if ( 0 <= srcY && srcY < m_SrcH ) {
                     nume[dstX] += src[dstX + srcSt * srcY] * coef;
                     deno[dstX] += coef;
@@ -515,6 +523,13 @@ namespace iqo {
         }
     }
 
+    //! resize vertical (main loop)
+    //!
+    //! @param srcSt  Stride in src (in byte)
+    //! @param src    A row of source
+    //! @param dst    A row of destination
+    //! @param srcOY  The origin of current line
+    //! @param coefs  The coefficients
     void LanczosResizer::Impl::resizeYmain(
         intptr_t srcSt, const uint8_t * src,
         intptr_t dstW, float * __restrict dst,
@@ -549,7 +564,12 @@ namespace iqo {
         resizeXborder(src, dst, mainEnd, m_DstW);
     }
 
-
+    //! resize horizontal (main loop)
+    //!
+    //! @param src    A row of source
+    //! @param dst    A row of destination
+    //! @param begin  Position of a first pixel
+    //! @param end    Position of next of a last pixel
     void LanczosResizer::Impl::resizeXborder(
         const float * src, uint8_t * dst,
         intptr_t begin, intptr_t end)
