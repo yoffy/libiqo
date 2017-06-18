@@ -427,8 +427,9 @@ namespace iqo {
     {
         // resize
         if ( m_SrcH == m_DstH ) {
-            float * work = &m_Work[0];
+#pragma omp parallel for
             for ( intptr_t y = 0; y < m_SrcH; ++y ) {
+                float * work = &m_Work[0];
                 for ( intptr_t x = 0; x < m_SrcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
