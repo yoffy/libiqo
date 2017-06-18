@@ -440,7 +440,7 @@ namespace iqo {
             m_NumCoefsY = 2 * intptr_t(std::ceil((degree2 * m_SrcH) / double(m_DstH)));
         }
         m_NumTablesX = m_DstW / gcd(m_SrcW, m_DstW);
-        m_NumTablesX2 = lcm(m_NumTablesX, kVecStep);
+        m_NumTablesX2 = std::min(m_DstW, lcm(m_NumTablesX, kVecStep));
         m_NumTablesY = m_DstH / gcd(m_SrcH, m_DstH);
         m_TablesX.reserve(m_NumCoefsX * m_NumTablesX);
         m_TablesX.resize(m_NumCoefsX * m_NumTablesX);
