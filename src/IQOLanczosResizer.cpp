@@ -3,25 +3,47 @@
 #include <cstring>
 #include <algorithm>
 #include <vector>
-#include <immintrin.h>
+#include <smmintrin.h>
+
+#if defined(_OPENMP)
+    #include <omp.h>
+#endif
 
 #include "libiqo/IQOLanczosResizer.hpp"
 
 
 namespace {
 
-    inline intptr_t alignFloor(intptr_t v, intptr_t alignment)
+    int getNumberOfProcs()
+    {
+#if defined(_OPENMP)
+        return omp_get_num_procs();
+#else
+        return 1;
+#endif
+    }
+
+    int getThreadNumber()
+    {
+#if defined(_OPENMP)
+        return omp_get_thread_num();
+#else
+        return 0;
+#endif
+    }
+
+    intptr_t alignFloor(intptr_t v, intptr_t alignment)
     {
         return v / alignment * alignment;
     }
 
-    inline intptr_t alignCeil(intptr_t v, intptr_t alignment)
+    intptr_t alignCeil(intptr_t v, intptr_t alignment)
     {
         return (v + (alignment - 1)) / alignment * alignment;
     }
 
     template<typename T>
-    inline T sinc(T x)
+    T sinc(T x)
     {
         T fPi  = 3.14159265358979;
         T fPiX = fPi * x;
@@ -29,7 +51,7 @@ namespace {
     }
 
     template<typename T>
-    inline T lanczos(int degree, T x)
+    T lanczos(int degree, T x)
     {
         T absX = std::fabs(x);
         if ( std::fmod(absX, T(1)) < T(1e-5) ) {
@@ -216,55 +238,6 @@ namespace {
         return a * b / gcd(a, b);
     }
 
-    //! linear integer interpolation
-    class LinearIterator
-    {
-    public:
-        LinearIterator(intptr_t dx, intptr_t dy)
-        {
-            m_DX = dx;
-            m_DY = dy;
-            m_X = 0;
-            m_Y = 0;
-        }
-
-        //! get y
-        intptr_t operator*() const
-        {
-            return m_Y;
-        }
-
-        //! ++x
-        LinearIterator & operator++()
-        {
-            advance();
-            return *this;
-        }
-
-        //! x++
-        LinearIterator operator++(int)
-        {
-            LinearIterator tmp(*this);
-            advance();
-            return tmp;
-        }
-
-    private:
-        void advance()
-        {
-            m_X += m_DY;
-            while ( m_X >= m_DX ) {
-                ++m_Y;
-                m_X -= m_DX;
-            }
-        }
-
-        intptr_t m_DX;
-        intptr_t m_DY;
-        intptr_t m_X;
-        intptr_t m_Y;
-    };
-
     __m128i cmpgt_epu8(__m128i a, __m128i b)
     {
         const __m128i k0x80 = _mm_set1_epi8(0x80);
@@ -347,7 +320,7 @@ namespace iqo {
             intptr_t dstW, int16_t * __restrict dst,
             intptr_t srcOY,
             const int16_t * coefs,
-            int16_t * __restrict nume, int16_t * __restrict deno);
+            int16_t * __restrict deno);
         void resizeYmain(
             intptr_t srcSt, const uint8_t * src,
             intptr_t dstW, int16_t * __restrict dst,
@@ -484,13 +457,11 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW);
-        m_Work.resize(m_SrcW);
+        m_Work.reserve(m_SrcW * getNumberOfProcs());
+        m_Work.resize(m_SrcW * getNumberOfProcs());
         size_t maxW = std::max(m_SrcW, m_DstW);
-        m_Nume.reserve(maxW);
-        m_Nume.resize(maxW);
-        m_Deno.reserve(maxW);
-        m_Deno.resize(maxW);
+        m_Deno.reserve(maxW * getNumberOfProcs());
+        m_Deno.resize(maxW * getNumberOfProcs());
 
         // calc indices
         m_IndicesX.reserve(m_DstW);
@@ -533,10 +504,11 @@ namespace iqo {
     void LanczosResizer::Impl::resize(size_t srcSt, const uint8_t * src, size_t dstSt, uint8_t * __restrict dst)
     {
         // resize
-        int16_t * work = &m_Work[0];
 
         if ( m_SrcH == m_DstH ) {
+#pragma omp parallel for
             for ( intptr_t y = 0; y < m_SrcH; ++y ) {
+                int16_t * work = &m_Work[getThreadNumber() * m_SrcW];
                 for ( intptr_t x = 0; x < m_SrcW; ++x ) {
                     m_Work[m_SrcW * y + x] = src[srcSt * y + x] * kBias;
                 }
@@ -549,36 +521,26 @@ namespace iqo {
             intptr_t mainBegin = ((numCoefsOn2 - 1) * m_DstH + m_SrcH-1) / m_SrcH;
             intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcH - numCoefsOn2) * m_DstH / m_SrcH);
             const int16_t * tablesY = &m_TablesY[0];
-            intptr_t tableSize = m_NumTablesY * m_NumCoefsY;
-            intptr_t iTable = 0;
-            LinearIterator iSrcOY(m_DstH, m_SrcH);
 
+#pragma omp parallel for
             for ( intptr_t dstY = 0; dstY < mainBegin; ++dstY ) {
-                //       srcOY = floor(dstY / scale) + 1
-                intptr_t srcOY = *iSrcOY++ + 1;
-                //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
-                const int16_t * coefs = &tablesY[iTable];
-                iTable += m_NumCoefsY;
-                if ( iTable == tableSize ) {
-                    iTable = 0;
-                }
+                int16_t * work = &m_Work[getThreadNumber() * m_SrcW];
+                int16_t * deno = &m_Deno[getThreadNumber() * m_SrcW];
+                intptr_t srcOY = dstY * m_SrcH / m_DstH + 1;
+                const int16_t * coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
                 resizeYborder(
                     srcSt, &src[0],
                     m_SrcW, work,
                     srcOY,
                     coefs,
-                    &m_Nume[0], &m_Deno[0]);
+                    deno);
                 resizeX(work, &dst[dstSt * dstY]);
             }
+#pragma omp parallel for
             for ( intptr_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
-                //       srcOY = floor(dstY / scale) + 1
-                intptr_t srcOY = *iSrcOY++ + 1;
-                //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
-                const int16_t * coefs = &tablesY[iTable];
-                iTable += m_NumCoefsY;
-                if ( iTable == tableSize ) {
-                    iTable = 0;
-                }
+                int16_t * work = &m_Work[getThreadNumber() * m_SrcW];
+                intptr_t srcOY = dstY * m_SrcH / m_DstH + 1;
+                const int16_t * coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
                 resizeYmain(
                     srcSt, &src[0],
                     m_SrcW, work,
@@ -586,21 +548,18 @@ namespace iqo {
                     coefs);
                 resizeX(work, &dst[dstSt * dstY]);
             }
+#pragma omp parallel for
             for ( intptr_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
-                //       srcOY = floor(dstY / scale) + 1
-                intptr_t srcOY = *iSrcOY++ + 1;
-                //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
-                const int16_t * coefs = &tablesY[iTable];
-                iTable += m_NumCoefsY;
-                if ( iTable == tableSize ) {
-                    iTable = 0;
-                }
+                int16_t * work = &m_Work[getThreadNumber() * m_SrcW];
+                int16_t * deno = &m_Deno[getThreadNumber() * m_SrcW];
+                intptr_t srcOY = dstY * m_SrcH / m_DstH + 1;
+                const int16_t * coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
                 resizeYborder(
                     srcSt, &src[0],
                     m_SrcW, work,
                     srcOY,
                     coefs,
-                    &m_Nume[0], &m_Deno[0]);
+                    deno);
                 resizeX(work, &dst[dstSt * dstY]);
             }
         }
@@ -620,9 +579,10 @@ namespace iqo {
         intptr_t dstW, int16_t * __restrict dst,
         intptr_t srcOY,
         const int16_t * coefs,
-        int16_t * __restrict nume, int16_t * __restrict deno)
+        int16_t * __restrict deno)
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
+        int16_t * nume = dst;
 
         std::memset(nume, 0, dstW * sizeof(*nume));
         std::memset(deno, 0, dstW * sizeof(*deno));
