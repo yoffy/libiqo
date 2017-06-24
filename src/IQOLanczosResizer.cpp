@@ -294,10 +294,17 @@ namespace iqo {
 
     private:
         //! round(a / b)
-        static int roundedDiv(int a, int b, int bias)
+        static int roundedDiv(int a, int b, int biasbit)
         {
-            const int k0_5 = bias / 2;
+            const int k0_5 = (1 << biasbit) / 2;
             return (a + k0_5) / b;
+        }
+
+        //! (int)round(a)
+        static int cvtFixedToInt(int a, int biasbit)
+        {
+            const int k0_5 = (1 << biasbit) / 2;
+            return (a + k0_5) >> biasbit;
         }
 
         //! (int16_t)round(a)
@@ -339,12 +346,13 @@ namespace iqo {
             kVecStep  = 16, //!< int16x16
 
             //! for fixed point
-            kBiasBit  = 6,
-            kBias     = 1 << kBiasBit,
-            kFixed1_0 = kBias,          //!< 1.0 in fixed point
-            kFixed0_5 = kFixed1_0 / 2,  //!< 0.5 in fixed point
+            kBiasBit    = 6,
+            kBias       = 1 << kBiasBit,
+            kFixed1_0   = kBias,            //!< 1.0 in fixed point
+            kFixed0_5   = kFixed1_0 / 2,    //!< 0.5 in fixed point
 
-            kBias15   = 1 << 15,        //!< for pmulhrsw
+            kBias15Bit  = 15,
+            kBias15     = 1 << kBias15Bit,  //!< for pmulhrsw
         };
         intptr_t m_SrcW;
         intptr_t m_SrcH;
@@ -357,7 +365,6 @@ namespace iqo {
         std::vector<int16_t> m_TablesX;   //!< Lanczos table * numTablesX (interleaved)
         std::vector<int16_t> m_TablesY;   //!< Lanczos table * m_NumTablesY
         std::vector<int16_t> m_Work;
-        std::vector<int16_t> m_Nume;
         std::vector<int16_t> m_Deno;
         std::vector<uint16_t> m_IndicesX;
     };
@@ -662,7 +669,7 @@ namespace iqo {
         if ( m_SrcW == m_DstW ) {
             intptr_t dstW = m_DstW;
             for ( intptr_t dstX = 0; dstX < dstW; dstX++ ) {
-                dst[dstX] = roundedDiv(src[dstX], kBias, kBias);
+                dst[dstX] = cvtFixedToInt(src[dstX], kBiasBit);
             }
             return;
         }
@@ -712,7 +719,7 @@ namespace iqo {
             }
 
             // dst[dstX] = (nume / (deno*kBias)) >> 15
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, deno*kBias, kBias15*kBias));
+            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, deno*kBias, kBias15Bit+kBiasBit));
         }
     }
 
@@ -758,7 +765,7 @@ namespace iqo {
                 s16x8Nume1 = _mm_add_epi16(s16x8Nume1, s16x8iNume1);
             }
 
-            // dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, kBias, kBias));
+            // dst[dstX] = clamp<int16_t>(0, 255, cvtFixedToInt(nume, kBiasBit));
             __m128i s16x8Dst0 = cvtFixedToInt(s16x8Nume0);
             __m128i s16x8Dst1 = cvtFixedToInt(s16x8Nume1);
             __m128i u8x16Dst  = _mm_packus_epi16(s16x8Dst0, s16x8Dst1);
