@@ -236,29 +236,20 @@ namespace {
         return a * b / gcd(a, b);
     }
 
-    //! (uint8_t)min(255, max(0, v))
-    __m128i packus_epi16(__m256i v)
-    {
-        __m128i s16x8L = _mm256_castsi256_si128(v);
-        __m128i s16x8H = _mm256_extractf128_si256(v, 1);
-        return _mm_packus_epi16(s16x8L, s16x8H);
-    }
-
-    __m256i packus_epi32(__m256i lo, __m256i hi)
-    {
-        __m256i u16x16Perm = _mm256_packus_epi32(lo, hi);
-        return _mm256_permute4x64_epi64(u16x16Perm, _MM_SHUFFLE(3, 1, 2, 0));
-    }
-
     //! (uint8_t)min(255, max(0, round(v)))
-    __m128i cvtrps_epu8(__m256 lo, __m256 hi)
+    __m256i cvtrps_epu8(__m512 lo, __m512 hi)
     {
-        __m256  f32x8L = _mm256_round_ps(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        __m256  f32x8H = _mm256_round_ps(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        __m256i s32x8L = _mm256_cvttps_epi32(f32x8L);
-        __m256i s32x8H = _mm256_cvttps_epi32(f32x8H);
-        __m256i u16x16 = packus_epi32(s32x8L, s32x8H);
-        return packus_epi16(u16x16);
+        __m512i s32x16L = _mm512_cvt_roundepi32_ps(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+        __m512i s32x16H = _mm512_cvt_roundepi32_ps(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+		// HFHEHDHC LFLELDLC HBHAH9H8 LBLAL9L8 H7H6H5H4 L7L6L5L4 H3H2H1H0 L3L2L1L0
+        __m512i u16x32P  = _mm512_packus_epi32(s32x16L, s32x16H);
+		__m256i u16x16P0 = _mm512_castsi512_si256(u16x32P);
+		__m256i u16x16P1 = _mm512_extracti64x4_epi64(u16x32P, 1);
+		// HFHEHDHC LFLELDLC H7H6H5H4 L7L6L5L4 HBHAH9H8 LBLAL9L8 H3H2H1H0 L3L2L1L0
+		__m256i u8x32P = _mm256_packus_epi16(u16x16P0, u16x16P1);
+		__m256i u32x8Table = _mm256_set_epi32(7, 3, 5, 1, 6, 3, 4, 0);
+		__m256i u8x32  = _mm256_permutexvar_epi32(u32x8Table, u8x32P);
+        return u8x32;
     }
 
 }
@@ -295,7 +286,7 @@ namespace iqo {
 
         enum {
             //! for SIMD
-            kVecStep  = 16, //!< __m256 x 2
+            kVecStep  = 32, //!< __m512 x 2
         };
         intptr_t m_SrcW;
         intptr_t m_SrcH;
@@ -510,7 +501,8 @@ namespace iqo {
 
         for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
             // nume = 0;
-            __m512 f32x16Nume = _mm512_setzero_ps();
+            __m512 f32x16Nume0 = _mm512_setzero_ps();
+            __m512 f32x16Nume1 = _mm512_setzero_ps();
             float deno = 0;
 
             for ( intptr_t i = 0; i < numCoefsY; ++i ) {
@@ -519,17 +511,23 @@ namespace iqo {
                     // coef = coefs[i];
                     __m512  f32x16Coef = _mm512_set1_ps(coefs[i]);
                     // nume += src[dstX + srcSt*srcY] * coef;
-                    __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                    __m512  f32x16Src   = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src));
-                    f32x16Nume = _mm512_fmadd_ps(f32x16Src, f32x16Coef, f32x16Nume);
+                    __m256i u8x32Src    = _mm256_loadu_si256((const __m256i *)&src[dstX + srcSt*srcY]);
+                    __m128i u8x16Src0   = _mm256_castsi256_si128(u8x32Src);
+                    __m128i u8x16Src1   = _mm256_extracti128_si256(u8x32Src, 1);
+                    __m512  f32x16Src0  = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src0));
+                    __m512  f32x16Src1  = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src1));
+                    f32x16Nume0 = _mm512_fmadd_ps(f32x16Src0, f32x16Coef, f32x16Nume0);
+                    f32x16Nume1 = _mm512_fmadd_ps(f32x16Src1, f32x16Coef, f32x16Nume1);
                     deno += coefs[i];
                 }
             }
 
             // dst[dstX] = nume / deno;
             __m512 f32x16Deno = _mm512_set1_ps(deno);
-            __m512 f32x16Dst  = _mm512_div_ps(f32x16Nume, f32x16Deno);
-            _mm512_storeu_ps(&dst[dstX], f32x16Dst);
+            __m512 f32x16Dst0 = _mm512_div_ps(f32x16Nume0, f32x16Deno);
+            __m512 f32x16Dst1 = _mm512_div_ps(f32x16Nume1, f32x16Deno);
+            _mm512_storeu_ps(&dst[dstX +  0], f32x16Dst0);
+            _mm512_storeu_ps(&dst[dstX + 16], f32x16Dst1);
         }
 
         for ( intptr_t dstX = vecLen; dstX < dstW; dstX++ ) {
@@ -566,21 +564,28 @@ namespace iqo {
 
         for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
             // nume = 0;
-            __m512 f32x16Nume = _mm512_setzero_ps();
+            __m512 f32x16Nume0 = _mm512_setzero_ps();
+            __m512 f32x16Nume1 = _mm512_setzero_ps();
 
             for ( intptr_t i = 0; i < numCoefsY; ++i ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
                 // coef = coefs[i];
                 __m512  f32x16Coef = _mm512_set1_ps(coefs[i]);
                 // nume += src[dstX + srcSt*srcY] * coef;
-                __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                __m512  f32x16Src   = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src));
-                f32x16Nume = _mm512_fmadd_ps(f32x16Src, f32x16Coef, f32x16Nume);
+                __m256i u8x32Src    = _mm256_loadu_si256((const __m256i *)&src[dstX + srcSt*srcY]);
+                __m128i u8x16Src0   = _mm256_castsi256_si128(u8x32Src);
+                __m128i u8x16Src1   = _mm256_extracti128_si256(u8x32Src, 1);
+                __m512  f32x16Src0  = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src0));
+                __m512  f32x16Src1  = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src1));
+                f32x16Nume0 = _mm512_fmadd_ps(f32x16Src0, f32x16Coef, f32x16Nume0);
+                f32x16Nume1 = _mm512_fmadd_ps(f32x16Src1, f32x16Coef, f32x16Nume1);
             }
 
             // dst[dstX] = nume;
-            __m512 f32x16Dst = f32x16Nume;
-            _mm512_storeu_ps(&dst[dstX], f32x16Dst);
+            __m512 f32x16Dst0 = f32x16Nume0;
+            __m512 f32x16Dst1 = f32x16Nume1;
+            _mm512_storeu_ps(&dst[dstX +  0], f32x16Dst0);
+            _mm512_storeu_ps(&dst[dstX + 16], f32x16Dst1);
         }
 
         for ( intptr_t dstX = vecLen; dstX < dstW; dstX++ ) {
@@ -626,49 +631,49 @@ namespace iqo {
         intptr_t tableSize = m_TablesXWidth * m_NumCoordsX;
         intptr_t numCoefsX = m_NumCoefsX;
 
-        __m256i s32x8k_1  = _mm256_set1_epi32(-1);
-        __m256i s32x8SrcW = _mm256_set1_epi32(m_SrcW);
+        __m512i s32x16k_1  = _mm512_set1_epi32(-1);
+        __m512i s32x16SrcW = _mm512_set1_epi32(m_SrcW);
         intptr_t iCoef = begin / kVecStep % m_NumCoordsX * m_TablesXWidth;
         for ( intptr_t dstX = begin; dstX < end; dstX += kVecStep ) {
             //      nume   = 0;
-            __m256  f32x8Nume0 = _mm256_setzero_ps();
-            __m256  f32x8Nume8 = _mm256_setzero_ps();
+            __m512  f32x16Nume0 = _mm512_setzero_ps();
+            __m512  f32x16Nume1 = _mm512_setzero_ps();
             //      deno   = 0;
-            __m256  f32x8Deno0 = _mm256_setzero_ps();
-            __m256  f32x8Deno8 = _mm256_setzero_ps();
+            __m512  f32x16Deno0 = _mm512_setzero_ps();
+            __m512  f32x16Deno1 = _mm512_setzero_ps();
             //      srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
-            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+            __m512i s32x16SrcOX0 = _mm512_loadu_si512((const __m512i*)&indices[dstX + 0]);
+            __m512i s32x16SrcOX1 = _mm512_loadu_si512((const __m512i*)&indices[dstX + 16]);
 
             for ( intptr_t i = 0; i < numCoefsX; ++i ) {
-                __m256i s32x8Offset = _mm256_set1_epi32(i - numCoefsOn2);
+                __m512i s32x16Offset = _mm512_set1_epi32(i - numCoefsOn2);
 
-                //intptr_t srcX = indices[dstX + j] + offset;
-                __m256i s32x8SrcX0 = _mm256_add_epi32(s32x8SrcOX0, s32x8Offset);
-                __m256i s32x8SrcX8 = _mm256_add_epi32(s32x8SrcOX8, s32x8Offset);
+                //intptr_t srcX = indices[dstX] + offset;
+                __m512i s32x16SrcX0 = _mm512_add_epi32(s32x16SrcOX0, s32x16Offset);
+                __m512i s32x16SrcX1 = _mm512_add_epi32(s32x16SrcOX1, s32x16Offset);
 
                 // if ( 0 <= srcX && srcX < m_SrcW )
-                __m256i s32x8Mask0   = _mm256_and_si256(_mm256_cmpgt_epi32(s32x8SrcX0, s32x8k_1), _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX0));
-                __m256i s32x8Mask8   = _mm256_and_si256(_mm256_cmpgt_epi32(s32x8SrcX8, s32x8k_1), _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX8));
+                __mmask16 b16Mask0 = _mm512_cmpgt_epi32_mask(s32x16SrcX0, s32x16k_1) & _mm512_cmpgt_epi32_mask(s32x16SrcW, s32x16SrcX0);
+                __mmask16 b16Mask1 = _mm512_cmpgt_epi32_mask(s32x16SrcX1, s32x16k_1) & _mm512_cmpgt_epi32_mask(s32x16SrcW, s32x16SrcX1);
 
-                //nume[dstX + j] += src[srcX] * coefs[dstX + j];
-                __m256  f32x8Src0    = _mm256_mask_i32gather_ps(_mm256_setzero_ps(), src, s32x8SrcX0, s32x8Mask0, sizeof(float));
-                __m256  f32x8Src8    = _mm256_mask_i32gather_ps(_mm256_setzero_ps(), src, s32x8SrcX8, s32x8Mask8, sizeof(float));
-                __m256  f32x8Coefs0  = _mm256_load_ps(&coefs[iCoef + 0]);
-                __m256  f32x8Coefs8  = _mm256_load_ps(&coefs[iCoef + 8]);
-                f32x8Nume0 = _mm256_fmadd_ps(f32x8Src0, f32x8Coefs0, f32x8Nume0);
-                f32x8Nume8 = _mm256_fmadd_ps(f32x8Src8, f32x8Coefs8, f32x8Nume8);
-                f32x8Deno0 = _mm256_add_ps(f32x8Deno0, f32x8Coefs0);
-                f32x8Deno8 = _mm256_add_ps(f32x8Deno8, f32x8Coefs8);
+                // nume[dstX] += src[srcX] * coefs[iCoef];
+                __m512  f32x16Src0    = _mm512_mask_i32gather_ps(_mm512_setzero_ps(), b16Mask0, s32x16SrcX0, src, sizeof(float));
+                __m512  f32x16Src1    = _mm512_mask_i32gather_ps(_mm512_setzero_ps(), b16Mask1, s32x16SrcX1, src, sizeof(float));
+                __m512  f32x16Coefs0  = _mm512_load_ps(&coefs[iCoef + 0]);
+                __m512  f32x16Coefs1  = _mm512_load_ps(&coefs[iCoef + 16]);
+                f32x16Nume0 = _mm512_fmadd_ps(f32x16Src0, f32x16Coefs0, f32x16Nume0);
+                f32x16Nume1 = _mm512_fmadd_ps(f32x16Src1, f32x16Coefs1, f32x16Nume1);
+                f32x16Deno0 = _mm512_add_ps(f32x16Deno0, f32x16Coefs0);
+                f32x16Deno1 = _mm512_add_ps(f32x16Deno1, f32x16Coefs1);
 
                 iCoef += kVecStep;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(f32Nume / f32Deno));
-            __m256  f32x8Dst0 = _mm256_div_ps(f32x8Nume0, f32x8Deno0);
-            __m256  f32x8Dst8 = _mm256_div_ps(f32x8Nume8, f32x8Deno8);
-            __m128i u8x16Dst = cvtrps_epu8(f32x8Dst0, f32x8Dst8);
-            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
+            __m512  f32x16Dst0 = _mm512_div_ps(f32x16Nume0, f32x16Deno0);
+            __m512  f32x16Dst1 = _mm512_div_ps(f32x16Nume1, f32x16Deno1);
+            __m256i u8x32Dst = cvtrps_epu8(f32x16Dst0, f32x16Dst1);
+            _mm256_storeu_si256((__m256i*)&dst[dstX], u8x32Dst);
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
@@ -676,6 +681,7 @@ namespace iqo {
             }
         }
     }
+
     void LanczosResizer::Impl::resizeXmain(
         const float * src, uint8_t * __restrict dst,
         intptr_t begin, intptr_t end)
@@ -687,33 +693,33 @@ namespace iqo {
         intptr_t numCoefsX = m_NumCoefsX;
 
         intptr_t iCoef = begin / kVecStep % m_NumCoordsX * m_TablesXWidth;
-        for ( intptr_t dstX = begin; dstX < end; dstX += kVecStep ) {
+        for ( intptr_t dstX = begin; dstX < end; dstX += kVecStep*2 ) {
             //      nume   = 0;
-            __m256  f32x8Nume0 = _mm256_setzero_ps();
-            __m256  f32x8Nume8 = _mm256_setzero_ps();
+            __m512  f32x16Nume0 = _mm512_setzero_ps();
+            __m512  f32x16Nume1 = _mm512_setzero_ps();
             //       srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
-            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+            __m512i s32x16SrcOX0 = _mm512_loadu_si512((const __m512i*)&indices[dstX + 0]);
+            __m512i s32x16SrcOX1 = _mm512_loadu_si512((const __m512i*)&indices[dstX + 16]);
 
             for ( intptr_t i = 0; i < numCoefsX; ++i ) {
-                __m256i s32x8Offset   = _mm256_set1_epi32(i - numCoefsOn2);
+                __m512i s32x16Offset   = _mm512_set1_epi32(i - numCoefsOn2);
 
-                //intptr_t srcX = indices[dstX + j] + offset;
-                __m256i s32x8SrcX0 = _mm256_add_epi32(s32x8SrcOX0, s32x8Offset);
-                __m256i s32x8SrcX8 = _mm256_add_epi32(s32x8SrcOX8, s32x8Offset);
+                //intptr_t srcX = indices[dstX] + offset;
+                __m512i s32x16SrcX0 = _mm512_add_epi32(s32x16SrcOX0, s32x16Offset);
+                __m512i s32x16SrcX1 = _mm512_add_epi32(s32x16SrcOX1, s32x16Offset);
 
-                //nume[dstX + j] += src[srcX] * coefs[dstX + j];
-                __m256  s32x8Src0    = _mm256_i32gather_ps(src, s32x8SrcX0, sizeof(float));
-                __m256  s32x8Src8    = _mm256_i32gather_ps(src, s32x8SrcX8, sizeof(float));
-                __m256  f32x8Coefs0  = _mm256_load_ps(&coefs[iCoef + 0]);
-                __m256  f32x8Coefs8  = _mm256_load_ps(&coefs[iCoef + 8]);
-                f32x8Nume0 = _mm256_fmadd_ps(s32x8Src0, f32x8Coefs0, f32x8Nume0);
-                f32x8Nume8 = _mm256_fmadd_ps(s32x8Src8, f32x8Coefs8, f32x8Nume8);
+                //nume[dstX] += src[srcX] * coefs[iCoef];
+                __m512  s32x16Src0    = _mm512_i32gather_ps(s32x16SrcX0, src, sizeof(float));
+                __m512  s32x16Src1    = _mm512_i32gather_ps(s32x16SrcX1, src, sizeof(float));
+                __m512  f32x16Coefs0  = _mm512_load_ps(&coefs[iCoef + 0]);
+                __m512  f32x16Coefs1  = _mm512_load_ps(&coefs[iCoef + 16]);
+                f32x16Nume0 = _mm512_fmadd_ps(s32x16Src0, f32x16Coefs0, f32x16Nume0);
+                f32x16Nume1 = _mm512_fmadd_ps(s32x16Src1, f32x16Coefs1, f32x16Nume1);
                 iCoef += kVecStep;
             }
 
-            __m128i u8x16Dst = cvtrps_epu8(f32x8Nume0, f32x8Nume8);
-            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
+            __m256i u8x32Dst = cvtrps_epu8(f32x16Nume0, f32x16Nume1);
+            _mm256_storeu_si256((__m256i*)&dst[dstX], u8x32Dst);
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
