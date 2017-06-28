@@ -237,18 +237,18 @@ namespace {
     }
 
     //! (uint8_t)min(255, max(0, round(v)))
-    __m256i cvtrps_epu8(__m512 lo, __m512 hi)
+    __m256i cvt_roundps_epu8(__m512 lo, __m512 hi)
     {
-        __m512i s32x16L = _mm512_cvt_roundepi32_ps(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        __m512i s32x16H = _mm512_cvt_roundepi32_ps(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-		// HFHEHDHC LFLELDLC HBHAH9H8 LBLAL9L8 H7H6H5H4 L7L6L5L4 H3H2H1H0 L3L2L1L0
+        __m512i s32x16L = _mm512_cvt_roundps_epi32(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+        __m512i s32x16H = _mm512_cvt_roundps_epi32(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+        // HFHEHDHC LFLELDLC HBHAH9H8 LBLAL9L8 H7H6H5H4 L7L6L5L4 H3H2H1H0 L3L2L1L0
         __m512i u16x32P  = _mm512_packus_epi32(s32x16L, s32x16H);
-		__m256i u16x16P0 = _mm512_castsi512_si256(u16x32P);
-		__m256i u16x16P1 = _mm512_extracti64x4_epi64(u16x32P, 1);
-		// HFHEHDHC LFLELDLC H7H6H5H4 L7L6L5L4 HBHAH9H8 LBLAL9L8 H3H2H1H0 L3L2L1L0
-		__m256i u8x32P = _mm256_packus_epi16(u16x16P0, u16x16P1);
-		__m256i u32x8Table = _mm256_set_epi32(7, 3, 5, 1, 6, 3, 4, 0);
-		__m256i u8x32  = _mm256_permutexvar_epi32(u32x8Table, u8x32P);
+        __m256i u16x16P0 = _mm512_castsi512_si256(u16x32P);
+        __m256i u16x16P1 = _mm512_extracti64x4_epi64(u16x32P, 1);
+        // HFHEHDHC LFLELDLC H7H6H5H4 L7L6L5L4 HBHAH9H8 LBLAL9L8 H3H2H1H0 L3L2L1L0
+        __m256i u8x32P = _mm256_packus_epi16(u16x16P0, u16x16P1);
+        __m256i u32x8Table = _mm256_set_epi32(7, 3, 5, 1, 6, 2, 4, 0);
+        __m256i u8x32  = _mm256_permutexvar_epi32(u32x8Table, u8x32P);
         return u8x32;
     }
 
@@ -286,7 +286,8 @@ namespace iqo {
 
         enum {
             //! for SIMD
-            kVecStep  = 32, //!< __m512 x 2
+            kVecStepY  = 32, //!< __m512 x 2
+            kVecStepX  = 32, //!< __m512 x 2
         };
         intptr_t m_SrcW;
         intptr_t m_SrcH;
@@ -359,12 +360,12 @@ namespace iqo {
             m_NumCoefsY = 2 * intptr_t(std::ceil((degree2 * m_SrcH) / double(m_DstH)));
         }
         m_NumCoordsX = m_DstW / gcd(m_SrcW, m_DstW);
-        m_NumUnrolledCoordsX = std::min(alignCeil(m_DstW, kVecStep), lcm(m_NumCoordsX, kVecStep));
-        m_TablesXWidth = kVecStep * m_NumCoefsX;
+        m_NumUnrolledCoordsX = std::min(alignCeil(m_DstW, kVecStepX), lcm(m_NumCoordsX, kVecStepX));
+        m_TablesXWidth = kVecStepX * m_NumCoefsX;
         m_NumCoordsY = m_DstH / gcd(m_SrcH, m_DstH);
-        m_TablesX_.reserve(m_TablesXWidth * m_NumCoordsX + kVecStep);
-        m_TablesX_.resize(m_TablesXWidth * m_NumCoordsX + kVecStep);
-        m_TablesX = (float *)alignCeil(intptr_t(&m_TablesX_[0]), sizeof(*m_TablesX) * kVecStep);
+        m_TablesX_.reserve(m_TablesXWidth * m_NumCoordsX + kVecStepX);
+        m_TablesX_.resize(m_TablesXWidth * m_NumCoordsX + kVecStepX);
+        m_TablesX = (float *)alignCeil(intptr_t(&m_TablesX_[0]), sizeof(*m_TablesX) * kVecStepX);
         m_TablesY.reserve(m_NumCoefsY * m_NumCoordsY);
         m_TablesY.resize(m_NumCoefsY * m_NumCoordsY);
 
@@ -384,7 +385,7 @@ namespace iqo {
         //            B0B1B2B3
         //            C0C1C2C3
         //
-        //      srcX: ABCA BCAB CABC (upto m_NumUnrolledCoordsX; unroll to kVecStep)
+        //      srcX: ABCA BCAB CABC (upto m_NumUnrolledCoordsX; unroll to kVecStepX)
         // m_TablesX: A0B0C0A0 .. A3B3C3A3
         //            B0C0A0B0 .. B3C3A3B3
         //            C0A0B0C0 .. C3A3B3C3
@@ -392,8 +393,8 @@ namespace iqo {
         intptr_t nCoords = m_NumCoordsX;
         for ( intptr_t row = 0; row < nCoords; ++row ) {
             for ( intptr_t col = 0; col < tblW; ++col ) {
-                intptr_t iCoef = col/kVecStep;
-                intptr_t srcX = (col%kVecStep + row) % nCoords;
+                intptr_t iCoef = col/kVecStepX;
+                intptr_t srcX = (col%kVecStepX + row) % nCoords;
                 intptr_t i = iCoef + srcX*m_NumCoefsX;
                 m_TablesX[col + m_TablesXWidth*row] = tablesX[i];
             }
@@ -412,7 +413,7 @@ namespace iqo {
         m_Work.resize(m_SrcW * getNumberOfProcs());
 
         // calc indices
-        intptr_t alignedDstW = alignCeil(m_DstW, kVecStep);
+        intptr_t alignedDstW = alignCeil(m_DstW, kVecStepX);
         m_IndicesX.reserve(alignedDstW);
         m_IndicesX.resize(alignedDstW);
         for ( intptr_t dstX = 0; dstX < alignedDstW; ++dstX ) {
@@ -496,10 +497,10 @@ namespace iqo {
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
         intptr_t numCoefsY = m_NumCoefsY;
-        intptr_t vecLen = alignFloor(dstW, kVecStep);
+        intptr_t vecLen = alignFloor(dstW, kVecStepY);
         intptr_t srcH = m_SrcH;
 
-        for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
+        for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStepY ) {
             // nume = 0;
             __m512 f32x16Nume0 = _mm512_setzero_ps();
             __m512 f32x16Nume1 = _mm512_setzero_ps();
@@ -560,9 +561,9 @@ namespace iqo {
     {
         intptr_t numCoefsOn2 = m_NumCoefsY / 2;
         intptr_t numCoefsY = m_NumCoefsY;
-        intptr_t vecLen = alignFloor(dstW, kVecStep);
+        intptr_t vecLen = alignFloor(dstW, kVecStepY);
 
-        for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
+        for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStepY ) {
             // nume = 0;
             __m512 f32x16Nume0 = _mm512_setzero_ps();
             __m512 f32x16Nume1 = _mm512_setzero_ps();
@@ -605,9 +606,9 @@ namespace iqo {
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
         // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
-        intptr_t mainBegin = alignCeil(((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW, kVecStep);
+        intptr_t mainBegin = alignCeil(((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW, kVecStepX);
         intptr_t mainEnd = std::max<intptr_t>(0, (m_SrcW - numCoefsOn2) * m_DstW / m_SrcW);
-        intptr_t mainLen = alignFloor(mainEnd - mainBegin, kVecStep);
+        intptr_t mainLen = alignFloor(mainEnd - mainBegin, kVecStepX);
         mainEnd = mainBegin + mainLen;
 
         resizeXborder(src, dst, 0, mainBegin);
@@ -615,7 +616,7 @@ namespace iqo {
         resizeXborder(src, dst, mainEnd, m_DstW);
     }
 
-    //! resize horizontal (main loop)
+    //! resize horizontal (border loop)
     //!
     //! @param src    A row of source
     //! @param dst    A row of destination
@@ -626,15 +627,16 @@ namespace iqo {
         intptr_t begin, intptr_t end)
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
+        intptr_t numCoefsX = m_NumCoefsX;
+        intptr_t tableSize = m_TablesXWidth * m_NumCoordsX;
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
-        intptr_t tableSize = m_TablesXWidth * m_NumCoordsX;
-        intptr_t numCoefsX = m_NumCoefsX;
+        intptr_t iCoef = begin / kVecStepX % m_NumCoordsX * m_TablesXWidth;
 
-        __m512i s32x16k_1  = _mm512_set1_epi32(-1);
-        __m512i s32x16SrcW = _mm512_set1_epi32(m_SrcW);
-        intptr_t iCoef = begin / kVecStep % m_NumCoordsX * m_TablesXWidth;
-        for ( intptr_t dstX = begin; dstX < end; dstX += kVecStep ) {
+        const __m512i s32x16k_1  = _mm512_set1_epi32(-1);
+        const __m512i s32x16SrcW = _mm512_set1_epi32(m_SrcW);
+
+        for ( intptr_t dstX = begin; dstX < end; dstX += kVecStepX ) {
             //      nume   = 0;
             __m512  f32x16Nume0 = _mm512_setzero_ps();
             __m512  f32x16Nume1 = _mm512_setzero_ps();
@@ -642,7 +644,7 @@ namespace iqo {
             __m512  f32x16Deno0 = _mm512_setzero_ps();
             __m512  f32x16Deno1 = _mm512_setzero_ps();
             //      srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
-            __m512i s32x16SrcOX0 = _mm512_loadu_si512((const __m512i*)&indices[dstX + 0]);
+            __m512i s32x16SrcOX0 = _mm512_loadu_si512((const __m512i*)&indices[dstX +  0]);
             __m512i s32x16SrcOX1 = _mm512_loadu_si512((const __m512i*)&indices[dstX + 16]);
 
             for ( intptr_t i = 0; i < numCoefsX; ++i ) {
@@ -659,20 +661,20 @@ namespace iqo {
                 // nume[dstX] += src[srcX] * coefs[iCoef];
                 __m512  f32x16Src0    = _mm512_mask_i32gather_ps(_mm512_setzero_ps(), b16Mask0, s32x16SrcX0, src, sizeof(float));
                 __m512  f32x16Src1    = _mm512_mask_i32gather_ps(_mm512_setzero_ps(), b16Mask1, s32x16SrcX1, src, sizeof(float));
-                __m512  f32x16Coefs0  = _mm512_load_ps(&coefs[iCoef + 0]);
+                __m512  f32x16Coefs0  = _mm512_load_ps(&coefs[iCoef +  0]);
                 __m512  f32x16Coefs1  = _mm512_load_ps(&coefs[iCoef + 16]);
                 f32x16Nume0 = _mm512_fmadd_ps(f32x16Src0, f32x16Coefs0, f32x16Nume0);
                 f32x16Nume1 = _mm512_fmadd_ps(f32x16Src1, f32x16Coefs1, f32x16Nume1);
                 f32x16Deno0 = _mm512_add_ps(f32x16Deno0, f32x16Coefs0);
                 f32x16Deno1 = _mm512_add_ps(f32x16Deno1, f32x16Coefs1);
 
-                iCoef += kVecStep;
+                iCoef += kVecStepX;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(f32Nume / f32Deno));
             __m512  f32x16Dst0 = _mm512_div_ps(f32x16Nume0, f32x16Deno0);
             __m512  f32x16Dst1 = _mm512_div_ps(f32x16Nume1, f32x16Deno1);
-            __m256i u8x32Dst = cvtrps_epu8(f32x16Dst0, f32x16Dst1);
+            __m256i u8x32Dst = cvt_roundps_epu8(f32x16Dst0, f32x16Dst1);
             _mm256_storeu_si256((__m256i*)&dst[dstX], u8x32Dst);
 
             // iCoef = dstX % tableSize;
@@ -682,23 +684,29 @@ namespace iqo {
         }
     }
 
+    //! resize horizontal (main loop)
+    //!
+    //! @param src    A row of source
+    //! @param dst    A row of destination
+    //! @param begin  Position of a first pixel
+    //! @param end    Position of next of a last pixel
     void LanczosResizer::Impl::resizeXmain(
         const float * src, uint8_t * __restrict dst,
         intptr_t begin, intptr_t end)
     {
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
+        intptr_t numCoefsX = m_NumCoefsX;
+        intptr_t tableSize = m_TablesXWidth * m_NumCoordsX;
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
-        intptr_t tableSize = m_TablesXWidth * m_NumCoordsX;
-        intptr_t numCoefsX = m_NumCoefsX;
+        intptr_t iCoef = begin / kVecStepX % m_NumCoordsX * m_TablesXWidth;
 
-        intptr_t iCoef = begin / kVecStep % m_NumCoordsX * m_TablesXWidth;
-        for ( intptr_t dstX = begin; dstX < end; dstX += kVecStep*2 ) {
+        for ( intptr_t dstX = begin; dstX < end; dstX += kVecStepX ) {
             //      nume   = 0;
             __m512  f32x16Nume0 = _mm512_setzero_ps();
             __m512  f32x16Nume1 = _mm512_setzero_ps();
-            //       srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
-            __m512i s32x16SrcOX0 = _mm512_loadu_si512((const __m512i*)&indices[dstX + 0]);
+            //      srcX = floor(dstX / scale) - numCoefsOn2 + 1 + i;
+            __m512i s32x16SrcOX0 = _mm512_loadu_si512((const __m512i*)&indices[dstX +  0]);
             __m512i s32x16SrcOX1 = _mm512_loadu_si512((const __m512i*)&indices[dstX + 16]);
 
             for ( intptr_t i = 0; i < numCoefsX; ++i ) {
@@ -711,14 +719,14 @@ namespace iqo {
                 //nume[dstX] += src[srcX] * coefs[iCoef];
                 __m512  s32x16Src0    = _mm512_i32gather_ps(s32x16SrcX0, src, sizeof(float));
                 __m512  s32x16Src1    = _mm512_i32gather_ps(s32x16SrcX1, src, sizeof(float));
-                __m512  f32x16Coefs0  = _mm512_load_ps(&coefs[iCoef + 0]);
+                __m512  f32x16Coefs0  = _mm512_load_ps(&coefs[iCoef +  0]);
                 __m512  f32x16Coefs1  = _mm512_load_ps(&coefs[iCoef + 16]);
                 f32x16Nume0 = _mm512_fmadd_ps(s32x16Src0, f32x16Coefs0, f32x16Nume0);
                 f32x16Nume1 = _mm512_fmadd_ps(s32x16Src1, f32x16Coefs1, f32x16Nume1);
-                iCoef += kVecStep;
+                iCoef += kVecStepX;
             }
 
-            __m256i u8x32Dst = cvtrps_epu8(f32x16Nume0, f32x16Nume1);
+            __m256i u8x32Dst = cvt_roundps_epu8(f32x16Nume0, f32x16Nume1);
             _mm256_storeu_si256((__m256i*)&dst[dstX], u8x32Dst);
 
             // iCoef = dstX % tableSize;
@@ -727,6 +735,5 @@ namespace iqo {
             }
         }
     }
-
 
 }
