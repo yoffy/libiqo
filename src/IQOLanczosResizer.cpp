@@ -510,33 +510,26 @@ namespace iqo {
 
         for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
             // nume = 0;
-            __m256 f32x8Nume0 = _mm256_setzero_ps();
-            __m256 f32x8Nume1 = _mm256_setzero_ps();
+            __m512 f32x16Nume = _mm512_setzero_ps();
             float deno = 0;
 
             for ( intptr_t i = 0; i < numCoefsY; ++i ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
                 if ( 0 <= srcY && srcY < srcH ) {
                     // coef = coefs[i];
-                    __m256  f32x8Coef = _mm256_set1_ps(coefs[i]);
+                    __m512  f32x16Coef = _mm512_set1_ps(coefs[i]);
                     // nume += src[dstX + srcSt*srcY] * coef;
                     __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                    __m128i u8x8Src0    = u8x16Src;
-                    __m128i u8x8Src1    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 2, 3, 2));
-                    __m256  f32x8Src0   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src0));
-                    __m256  f32x8Src1   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src1));
-                    f32x8Nume0 = _mm256_fmadd_ps(f32x8Src0, f32x8Coef, f32x8Nume0);
-                    f32x8Nume1 = _mm256_fmadd_ps(f32x8Src1, f32x8Coef, f32x8Nume1);
+                    __m512  f32x16Src   = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src));
+                    f32x16Nume = _mm512_fmadd_ps(f32x16Src, f32x16Coef, f32x16Nume);
                     deno += coefs[i];
                 }
             }
 
             // dst[dstX] = nume / deno;
-            __m256 f32x8Deno = _mm256_set1_ps(deno);
-            __m256 f32x8Dst0 = _mm256_div_ps(f32x8Nume0, f32x8Deno);
-            __m256 f32x8Dst1 = _mm256_div_ps(f32x8Nume1, f32x8Deno);
-            _mm256_storeu_ps(&dst[dstX + 0], f32x8Dst0);
-            _mm256_storeu_ps(&dst[dstX + 8], f32x8Dst1);
+            __m512 f32x16Deno = _mm512_set1_ps(deno);
+            __m512 f32x16Dst  = _mm512_div_ps(f32x16Nume, f32x16Deno);
+            _mm512_storeu_ps(&dst[dstX], f32x16Dst);
         }
 
         for ( intptr_t dstX = vecLen; dstX < dstW; dstX++ ) {
@@ -573,28 +566,21 @@ namespace iqo {
 
         for ( intptr_t dstX = 0; dstX < vecLen; dstX += kVecStep ) {
             // nume = 0;
-            __m256 f32x8Nume0 = _mm256_setzero_ps();
-            __m256 f32x8Nume1 = _mm256_setzero_ps();
+            __m512 f32x16Nume = _mm512_setzero_ps();
 
             for ( intptr_t i = 0; i < numCoefsY; ++i ) {
                 intptr_t srcY = srcOY - numCoefsOn2 + i;
                 // coef = coefs[i];
-                __m256  f32x8Coef = _mm256_set1_ps(coefs[i]);
+                __m512  f32x16Coef = _mm512_set1_ps(coefs[i]);
                 // nume += src[dstX + srcSt*srcY] * coef;
                 __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                __m128i u8x8Src0    = u8x16Src;
-                __m128i u8x8Src1    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 2, 3, 2));
-                __m256  f32x8Src0   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src0));
-                __m256  f32x8Src1   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src1));
-                f32x8Nume0 = _mm256_fmadd_ps(f32x8Src0, f32x8Coef, f32x8Nume0);
-                f32x8Nume1 = _mm256_fmadd_ps(f32x8Src1, f32x8Coef, f32x8Nume1);
+                __m512  f32x16Src   = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src));
+                f32x16Nume = _mm512_fmadd_ps(f32x16Src, f32x16Coef, f32x16Nume);
             }
 
             // dst[dstX] = nume;
-            __m256 f32x8Dst0 = f32x8Nume0;
-            __m256 f32x8Dst1 = f32x8Nume1;
-            _mm256_storeu_ps(&dst[dstX + 0], f32x8Dst0);
-            _mm256_storeu_ps(&dst[dstX + 8], f32x8Dst1);
+            __m512 f32x16Dst = f32x16Nume;
+            _mm512_storeu_ps(&dst[dstX], f32x16Dst);
         }
 
         for ( intptr_t dstX = vecLen; dstX < dstW; dstX++ ) {
