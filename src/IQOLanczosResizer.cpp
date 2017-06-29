@@ -612,6 +612,14 @@ namespace iqo {
 
     void LanczosResizer::Impl::resizeX(const float * src, uint8_t * dst)
     {
+        if ( m_SrcW == m_DstW ) {
+            intptr_t dstW = m_DstW;
+            for ( intptr_t dstX = 0; dstX < dstW; dstX++ ) {
+                dst[dstX] = clamp<int>(0, 255, round(src[dstX]));
+            }
+            return;
+        }
+
         intptr_t numCoefsOn2 = m_NumCoefsX / 2;
         // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
         intptr_t mainBegin = alignCeil(((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW, kVecStep);
