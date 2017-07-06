@@ -26,3 +26,16 @@
 *.exe
 *.out
 *.app
+
+# macOS
+.DS_Store
+
+# CMake
+Makefile
+CMakeFiles
+CMakeCache.txt
+*.cmake
+
+# Images
+*.yuv
+*.png
