@@ -1,5 +1,5 @@
 TARGET=libiqo.a
-OBJS=IQOLanczosResizer.o
+OBJS=IQOLanczosResizerImpl_AVX2FMA.o
 OPTFLAGS=-Ofast -march=haswell -D NDEBUG
 CXXFLAGS=-std=c++98 -Wall -Wextra -fno-exceptions -g $(OPTFLAGS) -I ../include
 
