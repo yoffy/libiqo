@@ -261,8 +261,6 @@ namespace iqo {
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
-        // resize
-
         if ( m_SrcH == m_DstH ) {
 #pragma omp parallel for
             for ( intptr_t y = 0; y < m_SrcH; ++y ) {
@@ -576,7 +574,6 @@ namespace iqo {
             }
 
             // dst[dstX] = round(nume)
-            // precision of RCPPS is only 11-bit, but it grater than precision of source image (8-bit).
             __m128  f32x4Dst0     = f32x4Nume0;
             __m128  f32x4Dst1     = f32x4Nume1;
             __m128i u8x8Dst       = cvt_roundps_epu8(f32x4Dst0, f32x4Dst1);
