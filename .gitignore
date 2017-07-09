@@ -39,3 +39,9 @@ CMakeCache.txt
 # Images
 *.yuv
 *.png
+
+# perf
+perf.data
+perf.data.old
+*.perf.data
+*.perf.data.old
