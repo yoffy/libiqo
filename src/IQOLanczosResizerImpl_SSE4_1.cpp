@@ -464,6 +464,12 @@ namespace iqo {
         resizeXborder(src, dst, mainEnd,   m_DstW);
     }
 
+    //! resize horizontal (border loop)
+    //!
+    //! @param src    A row of source
+    //! @param dst    A row of destination
+    //! @param begin  Position of a first pixel
+    //! @param end    Position of next of a last pixel
     void LanczosResizerImpl<ArchSSE4_1>::resizeXborder(
         const float * src, uint8_t * __restrict dst,
         intptr_t begin, intptr_t end

@@ -443,7 +443,7 @@ namespace iqo {
         resizeXborder(src, dst, mainEnd, m_DstW);
     }
 
-    //! resize horizontal (main loop)
+    //! resize horizontal (border loop)
     //!
     //! @param src    A row of source
     //! @param dst    A row of destination
