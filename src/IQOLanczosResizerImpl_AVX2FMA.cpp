@@ -483,10 +483,12 @@ namespace iqo {
                 // if ( 0 <= srcX && srcX < m_SrcW )
                 __m256i s32x8Mask0   = _mm256_and_si256(_mm256_cmpgt_epi32(s32x8SrcX0, s32x8k_1), _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX0));
                 __m256i s32x8Mask8   = _mm256_and_si256(_mm256_cmpgt_epi32(s32x8SrcX8, s32x8k_1), _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX8));
+                __m256  f32x8Mask0   = _mm256_castsi256_ps(s32x8Mask0);
+                __m256  f32x8Mask8   = _mm256_castsi256_ps(s32x8Mask8);
 
                 //nume[dstX + j] += src[srcX] * coefs[dstX + j];
-                __m256  f32x8Src0    = _mm256_mask_i32gather_ps(_mm256_setzero_ps(), src, s32x8SrcX0, s32x8Mask0, sizeof(float));
-                __m256  f32x8Src8    = _mm256_mask_i32gather_ps(_mm256_setzero_ps(), src, s32x8SrcX8, s32x8Mask8, sizeof(float));
+                __m256  f32x8Src0    = _mm256_mask_i32gather_ps(_mm256_setzero_ps(), src, s32x8SrcX0, f32x8Mask0, sizeof(float));
+                __m256  f32x8Src8    = _mm256_mask_i32gather_ps(_mm256_setzero_ps(), src, s32x8SrcX8, f32x8Mask8, sizeof(float));
                 __m256  f32x8Coefs0  = _mm256_load_ps(&coefs[iCoef + 0]);
                 __m256  f32x8Coefs8  = _mm256_load_ps(&coefs[iCoef + 8]);
                 f32x8Nume0 = _mm256_fmadd_ps(f32x8Src0, f32x8Coefs0, f32x8Nume0);
