@@ -30,15 +30,22 @@ namespace {
 #endif
     }
 
+    //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
+    #define IQO_INSERT_MEM_PS(srcPtr, s32x4Indices, srcField, f32x4Dst, dstField) \
+        _mm_insert_ps( \
+            (f32x4Dst), \
+            _mm_load_ss(&(srcPtr)[_mm_extract_epi32((s32x4Indices), (srcField))]), \
+            (dstField) << 4 \
+        )
+
     __m128 gather_ps(const float * f32Src, __m128i s32x4Indices)
     {
-        int32_t s32Indices[4];
-        float f32Dst[4];
-        _mm_storeu_si128((__m128i*)s32Indices, s32x4Indices);
-        for ( int i = 0; i < 4; ++i ) {
-            f32Dst[i] = f32Src[s32Indices[i]];
-        }
-        return _mm_loadu_ps(f32Dst);
+        __m128 f32x4V = _mm_setzero_ps();
+        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 0, f32x4V, 0);
+        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 1, f32x4V, 1);
+        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 2, f32x4V, 2);
+        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 3, f32x4V, 3);
+        return f32x4V;
     }
 
     __m128 mask_gather_ps(const float * f32Src, __m128i s32x4Indices, __m128i u32x4Mask)
