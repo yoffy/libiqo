@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.5)
 project(iqo)
 
 include(CheckCXXCompilerFlag)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ../lib/)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ../lib/)
 
 # options
 option(WITH_OPENMP "Use OpenMP" OFF)
