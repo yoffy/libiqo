@@ -180,9 +180,6 @@ namespace iqo {
         //! Destructor
         virtual ~LanczosResizerImpl() {}
 
-        //! Returns feature capability
-        virtual bool hasFeature() const;
-
         //! Construct
         virtual void init(
             unsigned int degree,
@@ -273,16 +270,11 @@ namespace iqo {
         return true;
     }
 
-    bool LanczosResizerImpl<ArchGeneric>::hasFeature() const
-    {
-        return LanczosResizerImpl_hasFeature<ArchGeneric>();
-    }
-
     template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchGeneric>()
     {
         return new LanczosResizerImpl<ArchGeneric>();
-   }
+    }
 
     // Constructor
     void LanczosResizerImpl<ArchGeneric>::init(
@@ -458,6 +450,14 @@ namespace iqo {
         }
     }
 
+    //! resize vertical (border loop)
+    //!
+    //! @param srcSt  Stride in src (in byte)
+    //! @param src    A row of source
+    //! @param dst    A row of destination (multiplied by kBias)
+    //! @param srcOY  The origin of current line
+    //! @param coefs  The coefficients (multiplied by kBias)
+    //! @param deno   Work memory for denominator
     void LanczosResizerImpl<ArchGeneric>::resizeYborder(
         ptrdiff_t srcSt, const uint8_t * src,
         ptrdiff_t dstW, int16_t * __restrict dst,
@@ -486,6 +486,13 @@ namespace iqo {
         }
     }
 
+    //! resize vertical (main loop)
+    //!
+    //! @param srcSt  Stride in src (in byte)
+    //! @param src    A row of source
+    //! @param dst    A row of destination (multiplied by kBias)
+    //! @param srcOY  The origin of current line
+    //! @param coefs  The coefficients (multiplied by kBias)
     void LanczosResizerImpl<ArchGeneric>::resizeYmain(
         ptrdiff_t srcSt, const uint8_t * src,
         ptrdiff_t dstW, int16_t * __restrict dst,
@@ -563,6 +570,12 @@ namespace iqo {
         }
     }
 
+    //! resize horizontal (main loop)
+    //!
+    //! @param src    A row of source (multiplied by kBias)
+    //! @param dst    A row of destination
+    //! @param begin  Position of a first pixel
+    //! @param end    Position of next of a last pixel
     void LanczosResizerImpl<ArchGeneric>::resizeXmain(
         const int16_t * src, uint8_t * __restrict dst,
         ptrdiff_t begin, ptrdiff_t end)

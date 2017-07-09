@@ -11,7 +11,12 @@ namespace iqo {
         size_t dstH,
         size_t pxScale
     ) {
-        m_Impl = LanczosResizerImpl_new<ArchGeneric>();
+        if ( LanczosResizerImpl_hasFeature<ArchSSE4_1>() ) {
+            m_Impl = LanczosResizerImpl_new<ArchSSE4_1>();
+        } else {
+            m_Impl = LanczosResizerImpl_new<ArchGeneric>();
+        }
+
         m_Impl->init(degree, srcW, srcH, dstW, dstH, pxScale);
     }
 

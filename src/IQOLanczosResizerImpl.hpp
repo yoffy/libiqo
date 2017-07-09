@@ -12,9 +12,6 @@ namespace iqo {
         //! Destructor
         virtual ~ILanczosResizerImpl() {}
 
-        //! Returns feature capability
-        virtual bool hasFeature() const = 0;
-
         //! Construct impl
         virtual void init(
             unsigned int degree,
@@ -37,11 +34,6 @@ namespace iqo {
     {
     public:
         virtual ~LanczosResizerImpl() {}
-
-        virtual bool hasFeature() const
-        {
-            return false;
-        }
 
         virtual void init(
             unsigned int degree,
@@ -82,9 +74,10 @@ namespace iqo {
         return NULL;
     }
 
-    template<>
-    ILanczosResizerImpl * LanczosResizerImpl_new<ArchGeneric>();
-
+    template<> bool LanczosResizerImpl_hasFeature<ArchGeneric>();
+    template<> bool LanczosResizerImpl_hasFeature<ArchSSE4_1>();
+    template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchGeneric>();
+    template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchSSE4_1>();
 
 
     //! Linear integer interpolation
@@ -167,6 +160,10 @@ namespace iqo {
         T * fTable
     );
 
+}
+
+namespace {
+
     template<typename T>
     T round(T x)
     {
@@ -177,6 +174,16 @@ namespace iqo {
     T clamp(T lo, T hi, T v)
     {
         return std::max(lo, std::min(hi, v));
+    }
+
+    static inline intptr_t alignFloor(intptr_t v, intptr_t alignment)
+    {
+        return v / alignment * alignment;
+    }
+
+    static inline intptr_t alignCeil(intptr_t v, intptr_t alignment)
+    {
+        return (v + (alignment - 1)) / alignment * alignment;
     }
 
     static inline ptrdiff_t gcd(ptrdiff_t a, ptrdiff_t b)
@@ -190,6 +197,11 @@ namespace iqo {
         }
 
         return b;
+    }
+
+    static inline intptr_t lcm(intptr_t a, intptr_t b)
+    {
+        return a * b / gcd(a, b);
     }
 
 }
