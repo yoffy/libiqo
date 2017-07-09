@@ -16,10 +16,25 @@ Image processing library for C++.
 
 ## Build
 
-Run `make` in this directory.
+Run `cmake` and `make` in this directory.
 
 ```
+$ cmake .
 $ make
 ```
 
 It outputs the library into `lib` directory.
+
+### make Options
+
+| option                         | description                 |
+|--------------------------------|-----------------------------|
+| VERBOSE=1                      | print build commands        |
+
+### CMake Options
+
+| option                         | description                 |
+|--------------------------------|-----------------------------|
+| WITH_OPENMP=ON                 | use OpenMP (default:OFF)    |
+| CMAKE_CXX_COMPILER=compiler    | use `compiler` to compile   |
+
