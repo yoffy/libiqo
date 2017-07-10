@@ -9,6 +9,7 @@
 #include "IQOLanczosResizerImpl.hpp"
 #include "IQOHWCap.hpp"
 
+#if defined(IQO_CPU_X86) && defined(IQO_AVX2) && defined(IQO_FMA)
 
 namespace {
 
@@ -561,3 +562,23 @@ namespace iqo {
     }
 
 }
+
+#else
+
+namespace iqo {
+
+    template<>
+    bool LanczosResizerImpl_hasFeature<ArchAVX512>()
+    {
+        return false;
+    }
+
+    template<>
+    ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX512>()
+    {
+        return NULL;
+    }
+
+}
+
+#endif

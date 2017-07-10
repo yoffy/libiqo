@@ -9,25 +9,26 @@
 #include "IQOLanczosResizerImpl.hpp"
 #include "IQOHWCap.hpp"
 
+#if defined(IQO_CPU_X86) && defined(IQO_HAVE_SSE4_1)
 
 namespace {
 
     int getNumberOfProcs()
     {
-#if defined(_OPENMP)
-        return omp_get_num_procs();
-#else
-        return 1;
-#endif
+        #if defined(_OPENMP)
+            return omp_get_num_procs();
+        #else
+            return 1;
+        #endif
     }
 
     int getThreadNumber()
     {
-#if defined(_OPENMP)
-        return omp_get_thread_num();
-#else
-        return 0;
-#endif
+        #if defined(_OPENMP)
+            return omp_get_thread_num();
+        #else
+            return 0;
+        #endif
     }
 
     //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
@@ -593,3 +594,23 @@ namespace iqo {
     }
 
 }
+
+#else
+
+namespce iqo {
+
+    template<>
+    bool LanczosResizerImpl_hasFeature<ArchSSE4_1>()
+    {
+        return false;
+    }
+
+    template<>
+    ILanczosResizerImpl * LanczosResizerImpl_new<ArchSSE4_1>()
+    {
+        return NULL;
+    }
+
+}
+
+#endif

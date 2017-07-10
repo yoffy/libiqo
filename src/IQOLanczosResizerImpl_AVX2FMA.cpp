@@ -9,25 +9,26 @@
 #include "IQOLanczosResizerImpl.hpp"
 #include "IQOHWCap.hpp"
 
+#if defined(IQO_CPU_X86) && defined(IQO_HAVE_AVX2FMA)
 
 namespace {
 
     int getNumberOfProcs()
     {
-#if defined(_OPENMP)
-        return omp_get_num_procs();
-#else
-        return 1;
-#endif
+        #if defined(_OPENMP)
+            return omp_get_num_procs();
+        #else
+            return 1;
+        #endif
     }
 
     int getThreadNumber()
     {
-#if defined(_OPENMP)
-        return omp_get_thread_num();
-#else
-        return 0;
-#endif
+        #if defined(_OPENMP)
+            return omp_get_thread_num();
+        #else
+            return 0;
+        #endif
     }
 
     //! (uint8_t)min(255, max(0, v))
@@ -565,3 +566,19 @@ namespace iqo {
     }
 
 }
+
+#else
+
+    template<>
+    bool LanczosResizerImpl_hasFeature<ArchAVX2FMA>()
+    {
+        return false;
+    }
+
+    template<>
+    ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX2FMA>()
+    {
+        return NULL;
+    }
+
+#endif

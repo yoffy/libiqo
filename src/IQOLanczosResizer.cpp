@@ -11,13 +11,16 @@ namespace iqo {
         size_t dstH,
         size_t pxScale
     ) {
+#if defined(IQO_CPU_X86)
         if ( LanczosResizerImpl_hasFeature<ArchAVX512>() ) {
             m_Impl = LanczosResizerImpl_new<ArchAVX512>();
         } else if ( LanczosResizerImpl_hasFeature<ArchAVX2FMA>() ) {
             m_Impl = LanczosResizerImpl_new<ArchAVX2FMA>();
         } else if ( LanczosResizerImpl_hasFeature<ArchSSE4_1>() ) {
             m_Impl = LanczosResizerImpl_new<ArchSSE4_1>();
-        } else {
+        } else
+#endif
+        {
             m_Impl = LanczosResizerImpl_new<ArchGeneric>();
         }
 
