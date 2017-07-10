@@ -194,59 +194,28 @@ namespace iqo {
         );
 
     private:
-        //! round(a / b)
-        static int roundedDiv(int a, int b, int biasbit)
-        {
-            const int k0_5 = (1 << biasbit) / 2;
-            return (a + k0_5) / b;
-        }
-
-        //! fixed_point_to_int(round(a))
-        static int convertToInt(int a, int biasbit)
-        {
-            const int k0_5 = (1 << biasbit) / 2;
-            return (a + k0_5) >> biasbit;
-        }
-
-        //! dst[i] = src[i] * kBias / srcSum (src will be broken)
-        void adjustCoefs(
-            float * srcBegin, float * srcEnd,
-            float srcSum,
-            int bias,
-            int16_t * dst
-        );
-
         void resizeYborder(
             ptrdiff_t srcSt, const uint8_t * src,
-            ptrdiff_t dstW, int16_t * dst,
+            ptrdiff_t dstW, float * dst,
             ptrdiff_t srcOY,
-            const int16_t * coefs,
-            int16_t * deno
+            const float * coefs,
+            float * deno
         );
         void resizeYmain(
             ptrdiff_t srcSt, const uint8_t * src,
-            ptrdiff_t dstW, int16_t * dst,
+            ptrdiff_t dstW, float * dst,
             ptrdiff_t srcOY,
-            const int16_t * coefs
+            const float * coefs
         );
-        void resizeX(const int16_t * src, uint8_t * dst);
+        void resizeX(const float * src, uint8_t * dst);
         void resizeXborder(
-            const int16_t * src, uint8_t * dst,
+            const float * src, uint8_t * dst,
             ptrdiff_t begin, ptrdiff_t end
         );
         void resizeXmain(
-            const int16_t * src, uint8_t * dst,
+            const float * src, uint8_t * dst,
             ptrdiff_t begin, ptrdiff_t end
         );
-
-        enum {
-            // for fixed point
-            kBiasBit = 6,
-            kBias    = 1 << kBiasBit,
-
-            kBias15Bit = 15,
-            kBias15  = 1 << kBias15Bit,
-        };
 
         ptrdiff_t m_SrcW;
         ptrdiff_t m_SrcH;
@@ -256,11 +225,11 @@ namespace iqo {
         ptrdiff_t m_NumCoefsY;
         ptrdiff_t m_NumTablesX;
         ptrdiff_t m_NumTablesY;
-        std::vector<int16_t> m_TablesX; //!< Lanczos table * m_NumTablesX
-        std::vector<int16_t> m_TablesY; //!< Lanczos table * m_NumTablesY
-        std::vector<int16_t> m_Work;    //!< working memory
-        std::vector<int16_t> m_Nume;
-        std::vector<int16_t> m_Deno;
+        std::vector<float> m_TablesX; //!< Lanczos table * m_NumTablesX
+        std::vector<float> m_TablesY; //!< Lanczos table * m_NumTablesY
+        std::vector<float> m_Work;    //!< working memory
+        std::vector<float> m_Nume;
+        std::vector<float> m_Deno;
     };
 
     template<>
@@ -315,15 +284,19 @@ namespace iqo {
 
         std::vector<float> tablesX(m_NumCoefsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
-            int16_t * table = &m_TablesX[dstX * m_NumCoefsX];
+            float * table = &m_TablesX[dstX * m_NumCoefsX];
             double sumCoefs = setLanczosTable(degree, m_SrcW, m_DstW, dstX, pxScale, m_NumCoefsX, &tablesX[0]);
-            adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, kBias15, &table[0]);
+            for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
+                table[i] = tablesX[i] / sumCoefs;
+            }
         }
         std::vector<float> tablesY(m_NumCoefsY);
         for ( ptrdiff_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
-            int16_t * table = &m_TablesY[dstY * m_NumCoefsY];
+            float * table = &m_TablesY[dstY * m_NumCoefsY];
             double sumCoefs = setLanczosTable(degree, m_SrcH, m_DstH, dstY, pxScale, m_NumCoefsY, &tablesY[0]);
-            adjustCoefs(&tablesY[0], &tablesY[m_NumCoefsY], sumCoefs, kBias, &table[0]);
+            for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
+                table[i] = tablesX[i] / sumCoefs;
+            }
         }
 
         // allocate workspace
@@ -336,40 +309,12 @@ namespace iqo {
         m_Deno.resize(maxW);
     }
 
-    void LanczosResizerImpl<ArchGeneric>::adjustCoefs(
-        float * __restrict srcBegin, float * __restrict srcEnd,
-        float srcSum,
-        int bias,
-        int16_t * __restrict dst)
-    {
-        const int k1_0 = bias;
-        size_t numCoefs = srcEnd - srcBegin;
-        int dstSum = 0;
-
-        for ( size_t i = 0; i < numCoefs; ++i ) {
-            dst[i] = round(srcBegin[i] * bias / srcSum);
-            dstSum += dst[i];
-        }
-        while ( dstSum < k1_0 ) {
-            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[m_NumCoefsX]));
-            dst[i]++;
-            srcBegin[i] = 0;
-            dstSum++;
-        }
-        while ( dstSum > k1_0 ) {
-            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[m_NumCoefsX]));
-            dst[i]--;
-            srcBegin[i] = 0;
-            dstSum--;
-        }
-    }
-
     void LanczosResizerImpl<ArchGeneric>::resize(
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
         // resize
-        int16_t * work = &m_Work[0];
+        float * work = &m_Work[0];
 
         if ( m_SrcH == m_DstH ) {
             // resize only X axis
@@ -387,7 +332,7 @@ namespace iqo {
         //        mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstH / double(m_SrcH))
         ptrdiff_t mainBegin = ((numCoefsOn2 - 1) * m_DstH + m_SrcH-1) / m_SrcH;
         ptrdiff_t mainEnd = std::max<ptrdiff_t>(0, (m_SrcH - numCoefsOn2) * m_DstH / m_SrcH);
-        const int16_t * tablesY = &m_TablesY[0];
+        const float * tablesY = &m_TablesY[0];
         ptrdiff_t tableSize = m_NumTablesY * m_NumCoefsY;
         ptrdiff_t iTable = 0;
         LinearIterator iSrcOY(m_DstH, m_SrcH);
@@ -396,8 +341,8 @@ namespace iqo {
         for ( ptrdiff_t dstY = 0; dstY < mainBegin; ++dstY ) {
             //        srcOY = floor(dstY / scale) + 1
             ptrdiff_t srcOY = *iSrcOY++ + 1;
-            //              coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
-            const int16_t * coefs = &tablesY[iTable];
+            //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
+            const float * coefs = &tablesY[iTable];
             iTable += m_NumCoefsY;
             if ( iTable == tableSize ) {
                 iTable = 0;
@@ -415,8 +360,8 @@ namespace iqo {
         for ( ptrdiff_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
             //        srcOY = floor(dstY / scale) + 1
             ptrdiff_t srcOY = *iSrcOY++ + 1;
-            //              coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
-            const int16_t * coefs = &tablesY[iTable];
+            //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
+            const float * coefs = &tablesY[iTable];
             iTable += m_NumCoefsY;
             if ( iTable == tableSize ) {
                 iTable = 0;
@@ -433,8 +378,8 @@ namespace iqo {
         for ( ptrdiff_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
             //        srcOY = floor(dstY / scale) + 1
             ptrdiff_t srcOY = *iSrcOY++ + 1;
-            //              coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
-            const int16_t * coefs = &tablesY[iTable];
+            //            coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
+            const float * coefs = &tablesY[iTable];
             iTable += m_NumCoefsY;
             if ( iTable == tableSize ) {
                 iTable = 0;
@@ -453,25 +398,25 @@ namespace iqo {
     //!
     //! @param srcSt  Stride in src (in byte)
     //! @param src    A row of source
-    //! @param dst    A row of destination (multiplied by kBias)
+    //! @param dst    A row of destination
     //! @param srcOY  The origin of current line
-    //! @param coefs  The coefficients (multiplied by kBias)
+    //! @param coefs  The coefficients
     //! @param deno   Work memory for denominator
     void LanczosResizerImpl<ArchGeneric>::resizeYborder(
         ptrdiff_t srcSt, const uint8_t * src,
-        ptrdiff_t dstW, int16_t * __restrict dst,
+        ptrdiff_t dstW, float * __restrict dst,
         ptrdiff_t srcOY,
-        const int16_t * coefs,
-        int16_t * __restrict deno)
+        const float * coefs,
+        float * __restrict deno)
     {
         ptrdiff_t numCoefsOn2 = m_NumCoefsY / 2;
-        int16_t * nume = dst;
+        float * nume = dst;
 
         std::memset(nume, 0, dstW * sizeof(*nume));
         std::memset(deno, 0, dstW * sizeof(*deno));
 
         for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
-            int16_t coef = coefs[i];
+            float coef = coefs[i];
             for ( ptrdiff_t dstX = 0; dstX < dstW; ++dstX ) {
                 ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
                 if ( 0 <= srcY && srcY < m_SrcH ) {
@@ -481,7 +426,7 @@ namespace iqo {
             }
         }
         for ( ptrdiff_t dstX = 0; dstX < dstW; ++dstX ) {
-            dst[dstX] = int16_t(int(nume[dstX])*kBias / deno[dstX]);
+            dst[dstX] = nume[dstX] / deno[dstX];
         }
     }
 
@@ -489,21 +434,21 @@ namespace iqo {
     //!
     //! @param srcSt  Stride in src (in byte)
     //! @param src    A row of source
-    //! @param dst    A row of destination (multiplied by kBias)
+    //! @param dst    A row of destination
     //! @param srcOY  The origin of current line
-    //! @param coefs  The coefficients (multiplied by kBias)
+    //! @param coefs  The coefficients
     void LanczosResizerImpl<ArchGeneric>::resizeYmain(
         ptrdiff_t srcSt, const uint8_t * src,
-        ptrdiff_t dstW, int16_t * __restrict dst,
+        ptrdiff_t dstW, float * __restrict dst,
         ptrdiff_t srcOY,
-        const int16_t * coefs)
+        const float * coefs)
     {
         ptrdiff_t numCoefsOn2 = m_NumCoefsY / 2;
 
         std::memset(dst, 0, dstW * sizeof(*dst));
 
         for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
-            int16_t coef = coefs[i];
+            float coef = coefs[i];
             for ( ptrdiff_t dstX = 0; dstX < dstW; ++dstX ) {
                 ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
                 dst[dstX] += src[dstX + srcSt * srcY] * coef;
@@ -511,13 +456,13 @@ namespace iqo {
         }
     }
 
-    void LanczosResizerImpl<ArchGeneric>::resizeX(const int16_t * src, uint8_t * __restrict dst)
+    void LanczosResizerImpl<ArchGeneric>::resizeX(const float * src, uint8_t * __restrict dst)
     {
         if ( m_SrcW == m_DstW ) {
             // resize only Y axis
             ptrdiff_t dstW = m_DstW;
             for ( ptrdiff_t dstX = 0; dstX < dstW; dstX++ ) {
-                dst[dstX] = convertToInt(src[dstX], kBiasBit);
+                dst[dstX] = clamp(0.0f, 255.0f, round(src[dstX]));
             }
             return;
         }
@@ -533,11 +478,11 @@ namespace iqo {
     }
 
     void LanczosResizerImpl<ArchGeneric>::resizeXborder(
-        const int16_t * src, uint8_t * __restrict dst,
+        const float * src, uint8_t * __restrict dst,
         ptrdiff_t begin, ptrdiff_t end
     ) {
         ptrdiff_t numCoefsOn2 = m_NumCoefsX / 2;
-        const int16_t * tablesX = &m_TablesX[0];
+        const float * tablesX = &m_TablesX[0];
         ptrdiff_t tableSize = m_NumTablesX * m_NumCoefsX;
         ptrdiff_t iTable = (m_NumCoefsX * begin) % tableSize;
         LinearIterator iSrcOX(m_DstW, m_SrcW);
@@ -546,10 +491,10 @@ namespace iqo {
         for ( ptrdiff_t dstX = begin; dstX < end; ++dstX ) {
             //        srcOX = floor(dstX / scale) + 1;
             ptrdiff_t srcOX = *iSrcOX++ + 1;
-            //              coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
-            const int16_t * coefs = &tablesX[iTable];
-            int nume = 0;
-            int deno = 0;
+            //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
+            const float * coefs = &tablesX[iTable];
+            float nume = 0;
+            float deno = 0;
 
             // iTable = (iTable + m_NumCoefsX) % tableSize;
             iTable += m_NumCoefsX;
@@ -559,28 +504,28 @@ namespace iqo {
             for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
                 ptrdiff_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
-                    int16_t coef = coefs[i];
+                    float coef = coefs[i];
                     nume += src[srcX] * coef;
                     deno += coef;
                 }
             }
 
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, deno*kBias, kBias15Bit+kBiasBit));
+            dst[dstX] = clamp(0.0f, 255.0f, nume / deno);
         }
     }
 
     //! resize horizontal (main loop)
     //!
-    //! @param src    A row of source (multiplied by kBias)
+    //! @param src    A row of source
     //! @param dst    A row of destination
     //! @param begin  Position of a first pixel
     //! @param end    Position of next of a last pixel
     void LanczosResizerImpl<ArchGeneric>::resizeXmain(
-        const int16_t * src, uint8_t * __restrict dst,
+        const float * src, uint8_t * __restrict dst,
         ptrdiff_t begin, ptrdiff_t end)
     {
         ptrdiff_t numCoefsOn2 = m_NumCoefsX / 2;
-        const int16_t * tablesX = &m_TablesX[0];
+        const float * tablesX = &m_TablesX[0];
         ptrdiff_t tableSize = m_NumTablesX * m_NumCoefsX;
         ptrdiff_t iTable = (m_NumCoefsX * begin) % tableSize;
         LinearIterator iSrcOX(m_DstW, m_SrcW);
@@ -589,9 +534,9 @@ namespace iqo {
         for ( ptrdiff_t dstX = begin; dstX < end; ++dstX ) {
             //        srcOX = floor(dstX / scale) + 1;
             ptrdiff_t srcOX = *iSrcOX++ + 1;
-            //              coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
-            const int16_t * coefs = &tablesX[iTable];
-            int sum = 0;
+            //            coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
+            const float * coefs = &tablesX[iTable];
+            float sum = 0;
 
             // iTable = (iTable + m_NumCoefsX) % tableSize;
             iTable += m_NumCoefsX;
@@ -603,7 +548,7 @@ namespace iqo {
                 sum += src[srcX] * coefs[i];
             }
 
-            dst[dstX] = clamp<int16_t>(0, 255, convertToInt(sum, kBias15Bit+kBiasBit));
+            dst[dstX] = clamp(0.0f, 255.0f, sum);
         }
     }
 
