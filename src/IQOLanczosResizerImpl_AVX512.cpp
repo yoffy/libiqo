@@ -1,3 +1,8 @@
+#include "IQOLanczosResizerImpl.hpp"
+
+
+#if defined(IQO_CPU_X86) && defined(IQO_AVX2) && defined(IQO_FMA)
+
 #include <cstring>
 #include <vector>
 #include <immintrin.h>
@@ -6,10 +11,8 @@
     #include <omp.h>
 #endif
 
-#include "IQOLanczosResizerImpl.hpp"
 #include "IQOHWCap.hpp"
 
-#if defined(IQO_CPU_X86) && defined(IQO_AVX2) && defined(IQO_FMA)
 
 namespace {
 

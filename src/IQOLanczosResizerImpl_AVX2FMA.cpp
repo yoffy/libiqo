@@ -1,3 +1,8 @@
+#include "IQOLanczosResizerImpl.hpp"
+
+
+#if defined(IQO_CPU_X86) && defined(IQO_HAVE_AVX2FMA)
+
 #include <cstring>
 #include <vector>
 #include <immintrin.h>
@@ -6,10 +11,8 @@
     #include <omp.h>
 #endif
 
-#include "IQOLanczosResizerImpl.hpp"
 #include "IQOHWCap.hpp"
 
-#if defined(IQO_CPU_X86) && defined(IQO_HAVE_AVX2FMA)
 
 namespace {
 
@@ -569,6 +572,8 @@ namespace iqo {
 
 #else
 
+namespace iqo {
+
     template<>
     bool LanczosResizerImpl_hasFeature<ArchAVX2FMA>()
     {
@@ -580,5 +585,7 @@ namespace iqo {
     {
         return NULL;
     }
+
+}
 
 #endif

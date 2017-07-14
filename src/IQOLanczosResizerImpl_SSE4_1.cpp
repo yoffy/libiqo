@@ -1,3 +1,8 @@
+#include "IQOLanczosResizerImpl.hpp"
+
+
+#if defined(IQO_CPU_X86) && defined(IQO_HAVE_SSE4_1)
+
 #include <cstring>
 #include <vector>
 #include <smmintrin.h>
@@ -6,10 +11,8 @@
     #include <omp.h>
 #endif
 
-#include "IQOLanczosResizerImpl.hpp"
 #include "IQOHWCap.hpp"
 
-#if defined(IQO_CPU_X86) && defined(IQO_HAVE_SSE4_1)
 
 namespace {
 
@@ -597,7 +600,7 @@ namespace iqo {
 
 #else
 
-namespce iqo {
+namespace iqo {
 
     template<>
     bool LanczosResizerImpl_hasFeature<ArchSSE4_1>()

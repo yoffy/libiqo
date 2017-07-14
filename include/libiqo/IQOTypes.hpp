@@ -29,8 +29,6 @@ namespace iqo {
     //! Instruction set for template specialization
     template<int ARCH> struct Arch{};
 
-#if defined(IQO_CPU_X86)
-
     enum EnumArch
     {
         kArchGeneric,
@@ -43,16 +41,5 @@ namespace iqo {
     typedef Arch<kArchSSE4_1>   ArchSSE4_1;     //!< SSE4.1
     typedef Arch<kArchAVX2FMA>  ArchAVX2FMA;    //!< AVX2, FMA
     typedef Arch<kArchAVX512>   ArchAVX512;     //!< AVX512F, AVX512VL, AVX512BW, AVX512DQ, AVX512CD
-
-#else
-
-    enum EnumArch
-    {
-        kArchGeneric,
-    };
-
-    typedef Arch<kArchGeneric>  ArchGeneric;
-
-#endif
 
 }
