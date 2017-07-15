@@ -33,8 +33,9 @@ It outputs the library into `lib` directory.
 
 ### CMake Options
 
-| option                         | description                 |
-|--------------------------------|-----------------------------|
-| WITH_OPENMP=ON                 | use OpenMP (default:OFF)    |
-| CMAKE_CXX_COMPILER=compiler    | use `compiler` to compile   |
+| option                         | description                                      |
+|--------------------------------|--------------------------------------------------|
+| WITH_OPENMP=ON                 | use OpenMP multi threading library (default:OFF) |
+| TARGET_ARCH=arch               | optimize for `arch`. ex. `armv7-a` on ARM.       |
+| CMAKE_CXX_COMPILER=compiler    | use `compiler` to compile                        |
 
