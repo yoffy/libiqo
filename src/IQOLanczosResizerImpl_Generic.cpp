@@ -294,8 +294,8 @@ namespace iqo {
         for ( ptrdiff_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
             float * table = &m_TablesY[dstY * m_NumCoefsY];
             double sumCoefs = setLanczosTable(degree, m_SrcH, m_DstH, dstY, pxScale, m_NumCoefsY, &tablesY[0]);
-            for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
-                table[i] = tablesX[i] / sumCoefs;
+            for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
+                table[i] = tablesY[i] / sumCoefs;
             }
         }
 
