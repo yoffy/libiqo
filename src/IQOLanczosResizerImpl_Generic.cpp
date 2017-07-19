@@ -313,7 +313,6 @@ namespace iqo {
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
-        // resize
         float * work = &m_Work[0];
 
         if ( m_SrcH == m_DstH ) {
@@ -510,7 +509,7 @@ namespace iqo {
                 }
             }
 
-            dst[dstX] = clamp(0.0f, 255.0f, nume / deno);
+            dst[dstX] = clamp(0.0f, 255.0f, round(nume / deno));
         }
     }
 
@@ -548,7 +547,7 @@ namespace iqo {
                 sum += src[srcX] * coefs[i];
             }
 
-            dst[dstX] = clamp(0.0f, 255.0f, sum);
+            dst[dstX] = clamp(0.0f, 255.0f, round(sum));
         }
     }
 
