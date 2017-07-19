@@ -19,6 +19,10 @@ namespace iqo {
         } else if ( LanczosResizerImpl_hasFeature<ArchSSE4_1>() ) {
             m_Impl = LanczosResizerImpl_new<ArchSSE4_1>();
         } else
+#elif defined(IQO_CPU_ARM)
+        if ( LanczosResizerImpl_hasFeature<ArchNEON>() ) {
+            m_Impl = LanczosResizerImpl_new<ArchNEON>();
+        } else
 #endif
         {
             m_Impl = LanczosResizerImpl_new<ArchGeneric>();

@@ -23,6 +23,14 @@ namespace iqo {
             bool hasBMI2() const        { return m_0x07_0x00.b & (1 <<  8); }
         #endif
 
+        #if defined(IQO_CPU_ARM)
+            #if defined(IQO_HAVE_NEON)
+                bool hasNEON() const        { return true; }
+            #else
+                bool hasNEON() const        { return false; }
+            #endif
+        #endif
+
     private:
         // no copy
         HWCap(const HWCap &);

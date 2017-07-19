@@ -79,10 +79,12 @@ namespace iqo {
     template<> bool LanczosResizerImpl_hasFeature<ArchSSE4_1>();
     template<> bool LanczosResizerImpl_hasFeature<ArchAVX2FMA>();
     template<> bool LanczosResizerImpl_hasFeature<ArchAVX512>();
+    template<> bool LanczosResizerImpl_hasFeature<ArchNEON>();
     template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchGeneric>();
     template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchSSE4_1>();
     template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX2FMA>();
     template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX512>();
+    template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchNEON>();
 
 
     //! Linear integer interpolation

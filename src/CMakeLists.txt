@@ -3,7 +3,8 @@ add_library(iqo IQOHWCap.cpp
                 IQOLanczosResizerImpl_Generic.cpp
                 IQOLanczosResizerImpl_SSE4_1.cpp
                 IQOLanczosResizerImpl_AVX2FMA.cpp
-                IQOLanczosResizerImpl_AVX512.cpp)
+                IQOLanczosResizerImpl_AVX512.cpp
+                IQOLanczosResizerImpl_NEON.cpp)
 target_include_directories(iqo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
 # common
@@ -31,4 +32,12 @@ endif()
 CHECK_CXX_COMPILER_FLAG("-march=skylake-avx512" COMPILER_SUPPORTS_MARCH_SKYLAKE_AVX512)
 if ( COMPILER_SUPPORTS_MARCH_SKYLAKE_AVX512 )
     set_property(SOURCE IQOLanczosResizerImpl_AVX512.cpp  APPEND_STRING PROPERTY COMPILE_FLAGS "-march=skylake-avx512")
+endif()
+
+
+# ARM
+
+CHECK_CXX_COMPILER_FLAG("-march=armv7-a -mfpu=neon" COMPILER_SUPPORTS_MARCH_ARMV7_A_NEON)
+if ( COMPILER_SUPPORTS_MARCH_ARMV7_A_NEON )
+    set_property(SOURCE IQOLanczosResizerImpl_NEON.cpp  APPEND_STRING PROPERTY COMPILE_FLAGS "-march=armv7-a -mfpu=neon")
 endif()

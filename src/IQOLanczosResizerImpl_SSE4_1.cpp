@@ -368,9 +368,10 @@ namespace iqo {
             }
 
             // dst[dstX] = nume / deno;
-            __m128 f32x4Deno = _mm_set1_ps(deno);
-            __m128 f32x4Dst0 = _mm_mul_ps(f32x4Nume0, _mm_rcp_ps(f32x4Deno));
-            __m128 f32x4Dst1 = _mm_mul_ps(f32x4Nume1, _mm_rcp_ps(f32x4Deno));
+            // precision of RCPPS is only 11-bit, but it grater than precision of source image (8-bit).
+            __m128 f32x4RcpDeno = _mm_rcp_ps(_mm_set1_ps(deno));
+            __m128 f32x4Dst0    = _mm_mul_ps(f32x4Nume0, f32x4RcpDeno);
+            __m128 f32x4Dst1    = _mm_mul_ps(f32x4Nume1, f32x4RcpDeno);
             _mm_storeu_ps(&dst[dstX + 0], f32x4Dst0);
             _mm_storeu_ps(&dst[dstX + 4], f32x4Dst1);
         }
