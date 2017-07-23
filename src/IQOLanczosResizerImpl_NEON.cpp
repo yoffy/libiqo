@@ -145,8 +145,8 @@ namespace iqo {
 
         enum {
             //! for SIMD
-            kVecStepX  = 8, //!< float32x8
-            kVecStepY  = 8, //!< float32x8
+            kVecStepX  =  8, //!< float32x4_t x 2
+            kVecStepY  = 16, //!< float32x4_t x 4
         };
         ptrdiff_t m_SrcW;
         ptrdiff_t m_SrcH;
@@ -372,21 +372,30 @@ namespace iqo {
             // nume = 0;
             float32x4_t f32x4Nume0 = vdupq_n_f32(0);
             float32x4_t f32x4Nume1 = vdupq_n_f32(0);
+            float32x4_t f32x4Nume2 = vdupq_n_f32(0);
+            float32x4_t f32x4Nume3 = vdupq_n_f32(0);
             float deno = 0;
 
             for ( ptrdiff_t i = 0; i < numCoefsY; ++i ) {
                 ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
                 if ( 0 <= srcY && srcY < srcH ) {
-                    float f32Coef   = coefs[i];
+                    float32x4_t f32x4Coef   = vdupq_n_f32(coefs[i]);
                     // nume += src[dstX + srcSt*srcY] * coef;
-                    uint8x8_t   u8x8Src     = vld1_u8(&src[dstX + srcSt*srcY]);
-                    uint16x8_t  u16x8Src    = vmovl_u8(u8x8Src);
-                    uint32x4_t  u32x4Src0   = vmovl_u16(vget_low_u16(u16x8Src));
-                    uint32x4_t  u32x4Src1   = vmovl_u16(vget_high_u16(u16x8Src));
+                    uint8x16_t  u8x16Src    = vld1q_u8(&src[dstX + srcSt*srcY]);
+                    uint16x8_t  u16x8Src0   = vmovl_u8(vget_low_u8(u8x16Src));
+                    uint16x8_t  u16x8Src1   = vmovl_u8(vget_high_u8(u8x16Src));
+                    uint32x4_t  u32x4Src0   = vmovl_u16(vget_low_u16(u16x8Src0));
+                    uint32x4_t  u32x4Src1   = vmovl_u16(vget_high_u16(u16x8Src0));
+                    uint32x4_t  u32x4Src2   = vmovl_u16(vget_low_u16(u16x8Src1));
+                    uint32x4_t  u32x4Src3   = vmovl_u16(vget_high_u16(u16x8Src1));
                     float32x4_t f32x4Src0   = vcvtq_f32_u32(u32x4Src0);
                     float32x4_t f32x4Src1   = vcvtq_f32_u32(u32x4Src1);
-                    f32x4Nume0 = vmlaq_n_f32(f32x4Nume0, f32x4Src0, f32Coef);
-                    f32x4Nume1 = vmlaq_n_f32(f32x4Nume1, f32x4Src1, f32Coef);
+                    float32x4_t f32x4Src2   = vcvtq_f32_u32(u32x4Src2);
+                    float32x4_t f32x4Src3   = vcvtq_f32_u32(u32x4Src3);
+                    f32x4Nume0 = vmlaq_f32(f32x4Nume0, f32x4Src0, f32x4Coef);
+                    f32x4Nume1 = vmlaq_f32(f32x4Nume1, f32x4Src1, f32x4Coef);
+                    f32x4Nume2 = vmlaq_f32(f32x4Nume2, f32x4Src2, f32x4Coef);
+                    f32x4Nume3 = vmlaq_f32(f32x4Nume3, f32x4Src3, f32x4Coef);
                     deno += coefs[i];
                 }
             }
@@ -395,8 +404,12 @@ namespace iqo {
             float32x4_t f32x4RcpDeno    = rcp16(vdupq_n_f32(deno));
             float32x4_t f32x4Dst0       = vmulq_f32(f32x4Nume0, f32x4RcpDeno);
             float32x4_t f32x4Dst1       = vmulq_f32(f32x4Nume1, f32x4RcpDeno);
-            vst1q_f32(&dst[dstX + 0], f32x4Dst0);
-            vst1q_f32(&dst[dstX + 4], f32x4Dst1);
+            float32x4_t f32x4Dst2       = vmulq_f32(f32x4Nume2, f32x4RcpDeno);
+            float32x4_t f32x4Dst3       = vmulq_f32(f32x4Nume3, f32x4RcpDeno);
+            vst1q_f32(&dst[dstX +  0], f32x4Dst0);
+            vst1q_f32(&dst[dstX +  4], f32x4Dst1);
+            vst1q_f32(&dst[dstX +  8], f32x4Dst2);
+            vst1q_f32(&dst[dstX + 12], f32x4Dst3);
         }
 
         for ( ptrdiff_t dstX = vecLen; dstX < dstW; dstX++ ) {
@@ -405,7 +418,7 @@ namespace iqo {
 
             for ( ptrdiff_t i = 0; i < numCoefsY; ++i ) {
                 ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
-                float    coef = coefs[i];
+                float     coef = coefs[i];
                 nume += src[dstX + srcSt * srcY] * coef;
                 deno += coef;
             }
@@ -435,26 +448,39 @@ namespace iqo {
             // nume = 0;
             float32x4_t f32x4Nume0 = vdupq_n_f32(0);
             float32x4_t f32x4Nume1 = vdupq_n_f32(0);
+            float32x4_t f32x4Nume2 = vdupq_n_f32(0);
+            float32x4_t f32x4Nume3 = vdupq_n_f32(0);
 
             for ( ptrdiff_t i = 0; i < numCoefsY; ++i ) {
-                ptrdiff_t srcY       = srcOY - numCoefsOn2 + i;
-                float    f32Coef    = coefs[i];
+                ptrdiff_t   srcY        = srcOY - numCoefsOn2 + i;
+                float32x4_t f32x4Coef   = vdupq_n_f32(coefs[i]);
                 // nume += src[dstX + srcSt*srcY] * coef;
-                uint8x8_t   u8x8Src     = vld1_u8(&src[dstX + srcSt*srcY]);
-                uint16x8_t  u16x8Src    = vmovl_u8(u8x8Src);
-                uint32x4_t  u32x4Src0   = vmovl_u16(vget_low_u16(u16x8Src));
-                uint32x4_t  u32x4Src1   = vmovl_u16(vget_high_u16(u16x8Src));
+                uint8x16_t  u8x16Src    = vld1q_u8(&src[dstX + srcSt*srcY]);
+                uint16x8_t  u16x8Src0   = vmovl_u8(vget_low_u8(u8x16Src));
+                uint16x8_t  u16x8Src1   = vmovl_u8(vget_high_u8(u8x16Src));
+                uint32x4_t  u32x4Src0   = vmovl_u16(vget_low_u16(u16x8Src0));
+                uint32x4_t  u32x4Src1   = vmovl_u16(vget_high_u16(u16x8Src0));
+                uint32x4_t  u32x4Src2   = vmovl_u16(vget_low_u16(u16x8Src1));
+                uint32x4_t  u32x4Src3   = vmovl_u16(vget_high_u16(u16x8Src1));
                 float32x4_t f32x4Src0   = vcvtq_f32_u32(u32x4Src0);
                 float32x4_t f32x4Src1   = vcvtq_f32_u32(u32x4Src1);
-                f32x4Nume0 = vmlaq_n_f32(f32x4Nume0, f32x4Src0, f32Coef);
-                f32x4Nume1 = vmlaq_n_f32(f32x4Nume1, f32x4Src1, f32Coef);
+                float32x4_t f32x4Src2   = vcvtq_f32_u32(u32x4Src2);
+                float32x4_t f32x4Src3   = vcvtq_f32_u32(u32x4Src3);
+                f32x4Nume0 = vmlaq_f32(f32x4Nume0, f32x4Src0, f32x4Coef);
+                f32x4Nume1 = vmlaq_f32(f32x4Nume1, f32x4Src1, f32x4Coef);
+                f32x4Nume2 = vmlaq_f32(f32x4Nume2, f32x4Src2, f32x4Coef);
+                f32x4Nume3 = vmlaq_f32(f32x4Nume3, f32x4Src3, f32x4Coef);
             }
 
             // dst[dstX] = nume;
             float32x4_t f32x4Dst0 = f32x4Nume0;
             float32x4_t f32x4Dst1 = f32x4Nume1;
-            vst1q_f32(&dst[dstX + 0], f32x4Dst0);
-            vst1q_f32(&dst[dstX + 4], f32x4Dst1);
+            float32x4_t f32x4Dst2 = f32x4Nume2;
+            float32x4_t f32x4Dst3 = f32x4Nume3;
+            vst1q_f32(&dst[dstX +  0], f32x4Dst0);
+            vst1q_f32(&dst[dstX +  4], f32x4Dst1);
+            vst1q_f32(&dst[dstX +  8], f32x4Dst2);
+            vst1q_f32(&dst[dstX + 12], f32x4Dst3);
         }
 
         for ( ptrdiff_t dstX = vecLen; dstX < dstW; dstX++ ) {
@@ -462,7 +488,7 @@ namespace iqo {
 
             for ( ptrdiff_t i = 0; i < numCoefsY; ++i ) {
                 ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
-                float    coef = coefs[i];
+                float     coef = coefs[i];
                 nume += src[dstX + srcSt * srcY] * coef;
             }
 
