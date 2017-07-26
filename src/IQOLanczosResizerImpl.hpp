@@ -2,8 +2,8 @@
 #include <cmath>
 #include <algorithm>
 
-#include "libiqo/IQOLanczosResizer.hpp"
-#include "libiqo/IQOTypes.hpp"
+#include "libiqo/LanczosResizer.hpp"
+#include "libiqo/Types.hpp"
 
 namespace iqo {
 

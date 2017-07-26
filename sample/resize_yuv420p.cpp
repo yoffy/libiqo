@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include <libiqo/IQOLanczosResizer.hpp>
+#include <libiqo/LanczosResizer.hpp>
 
 namespace {
 
