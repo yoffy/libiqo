@@ -155,29 +155,19 @@ namespace iqo {
         m_DstH = dstH;
 
         // setup coefficients
-        if ( m_SrcW <= m_DstW ) {
-            // horizontal: up-sampling
-            m_NumCoefsX = 2 * degree;
-        } else {
-            // vertical: down-sampling
-            // n = 2*degree / scale
-            size_t degree2 = std::max<size_t>(1, degree / pxScale);
-            m_NumCoefsX = 2 * ptrdiff_t(std::ceil((degree2 * m_SrcW) / double(m_DstW)));
-        }
-        if ( m_SrcH <= m_DstH ) {
-            // vertical: up-sampling
-            m_NumCoefsY = 2 * degree;
-        } else {
-            // vertical: down-sampling
-            // n = 2*degree / scale
-            size_t degree2 = std::max<size_t>(1, degree / pxScale);
-            m_NumCoefsY = 2 * ptrdiff_t(std::ceil((degree2 * m_SrcH) / double(m_DstH)));
-        }
-        m_NumCoordsX = m_DstW / gcd(m_SrcW, m_DstW);
+        size_t gcdW = gcd(m_SrcW, m_DstW);
+        size_t gcdH = gcd(m_SrcH, m_DstH);
+        size_t rSrcW = m_SrcW / gcdW;
+        size_t rDstW = m_DstW / gcdW;
+        size_t rSrcH = m_SrcH / gcdH;
+        size_t rDstH = m_DstH / gcdH;
+        m_NumCoefsX = calcNumCoefsForLanczos(degree, rSrcW, rDstW, pxScale);
+        m_NumCoefsY = calcNumCoefsForLanczos(degree, rSrcH, rDstH, pxScale);
+        m_NumCoordsX = rDstW;
         m_NumUnrolledCoordsX = std::min(alignCeil(m_DstW, kVecStepX), lcm(m_NumCoordsX, kVecStepX));
         m_NumUnrolledCoordsX /= kVecStepX;
         m_TablesXWidth = kVecStepX * m_NumCoefsX;
-        m_NumCoordsY = m_DstH / gcd(m_SrcH, m_DstH);
+        m_NumCoordsY = rDstH;
         m_TablesX_.reserve(m_TablesXWidth * m_NumUnrolledCoordsX + kVecStepX);
         m_TablesX_.resize(m_TablesXWidth * m_NumUnrolledCoordsX + kVecStepX);
         m_TablesX = (float *)alignCeil(intptr_t(&m_TablesX_[0]), sizeof(*m_TablesX) * kVecStepX);
@@ -187,7 +177,7 @@ namespace iqo {
         std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumCoordsX; ++dstX ) {
             float * table = &tablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setLanczosTable(degree, m_SrcW, m_DstW, dstX, pxScale, m_NumCoefsX, table);
+            double sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
                 table[i] /= sumCoefs;
             }
@@ -225,7 +215,7 @@ namespace iqo {
 
         for ( ptrdiff_t dstY = 0; dstY < m_NumCoordsY; ++dstY ) {
             float * table = &m_TablesY[dstY * m_NumCoefsY];
-            double sumCoefs = setLanczosTable(degree, m_SrcH, m_DstH, dstY, pxScale, m_NumCoefsY, table);
+            double sumCoefs = setLanczosTable(degree, rSrcH, rDstH, dstY, pxScale, m_NumCoefsY, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
                 table[i] /= sumCoefs;
             }

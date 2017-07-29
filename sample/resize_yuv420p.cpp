@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include <libiqo/AreaResizer.hpp>
 #include <libiqo/LanczosResizer.hpp>
 
 namespace {
@@ -35,25 +36,31 @@ namespace {
 int main(int argc, char *argv[])
 {
     std::map<std::string, std::string> args = getArgs(argc, argv);
-    int degree = std::atoi(args["d"].c_str());
+    std::string method = args["m"];
     std::string srcPath = args["i"];
     std::string dstPath = args["o"];
     long srcW = std::atol(args["iw"].c_str());
     long srcH = std::atol(args["ih"].c_str());
     long dstW = std::atol(args["ow"].c_str());
     long dstH = std::atol(args["oh"].c_str());
+    int degree = 2;
 
     if ( srcPath.empty() || dstPath.empty()
         || srcW == 0 || srcH == 0
         || dstW == 0 || dstH == 0 )
     {
-        std::printf("usage: resize_yuv420 [-d degree] -i input.yuv -iw in_width -ih in_height -o output.yuv -ow out_width -oh out_height\n");
-        std::printf("degree The degree of Lanczos (ex. A=2 means Lanczos2) (default=2)\n");
+        std::printf("usage: resize_yuv420 -m method -i input.yuv -iw in_width -ih in_height -o output.yuv -ow out_width -oh out_height\n");
+        std::printf("method: area or lanczos[1-9]\n");
         return EINVAL;
     }
 
-    if ( degree == 0 ) {
-        degree = 2;
+    if ( method.size() == std::strlen("lanczos1") && method.find("lanczos") == 0 ) {
+        degree = method[7] - '0';
+        if ( degree < 1 || 9 < degree ) {
+            std::printf("invalid method: %s\n", method.c_str());
+            return EINVAL;
+        }
+        method = "lanczos";
     }
 
     size_t srcStX = srcW + srcW % 2;
@@ -69,8 +76,11 @@ int main(int argc, char *argv[])
     std::vector<uint8_t> src(srcSize);
     std::vector<uint8_t> dst(dstSize);
 
-    std::printf("quality\n");
-    std::printf("  degree: %d\n", degree);
+    std::printf("method: %s\n", method.c_str());
+    if ( method == "lanczos" ) {
+        std::printf("quality\n");
+        std::printf("  degree: %d\n", degree);
+    }
     std::printf("input\n");
     std::printf("    path: %s\n", srcPath.c_str());
     std::printf("    size: %lux%lu\n", srcW, srcH);
@@ -109,18 +119,37 @@ int main(int argc, char *argv[])
     uint8_t * dstU = &dstY[dstSizeY];
     uint8_t * dstV = &dstU[dstSizeU];
 
-    // resize Y
-    {
-        iqo::LanczosResizer r(degree, srcW, srcH, dstW, dstH);
+    if ( method == "area" ) {
+        // resize Y
+        {
+            iqo::AreaResizer r(srcW, srcH, dstW, dstH);
 
-        r.resize(srcStX, srcY, dstStX, dstY);
-    }
-    // resize U and V
-    {
-        iqo::LanczosResizer r(degree, srcStX / 2, srcStY / 2, dstStX / 2, dstStY / 2, 2);
+            r.resize(srcStX, srcY, dstStX, dstY);
+        }
+        // resize U and V
+        {
+            iqo::AreaResizer r(srcStX / 2, srcStY / 2, dstStX / 2, dstStY / 2);
 
-        r.resize(srcStX / 2, srcU, dstStX / 2, dstU);
-        r.resize(srcStX / 2, srcV, dstStX / 2, dstV);
+            r.resize(srcStX / 2, srcU, dstStX / 2, dstU);
+            r.resize(srcStX / 2, srcV, dstStX / 2, dstV);
+        }
+    } else if ( method == "lanczos" ) {
+        // resize Y
+        {
+            iqo::LanczosResizer r(degree, srcW, srcH, dstW, dstH);
+
+            r.resize(srcStX, srcY, dstStX, dstY);
+        }
+        // resize U and V
+        {
+            iqo::LanczosResizer r(degree, srcStX / 2, srcStY / 2, dstStX / 2, dstStY / 2, 2);
+
+            r.resize(srcStX / 2, srcU, dstStX / 2, dstU);
+            r.resize(srcStX / 2, srcV, dstStX / 2, dstV);
+        }
+    } else {
+        std::printf("invalid method: %s\n", method.c_str());
+        return EINVAL;
     }
 
     // write output

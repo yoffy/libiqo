@@ -1,4 +1,4 @@
-#include "IQOLanczosResizerImpl.hpp"
+#include "IQOAreaResizerImpl.hpp"
 
 
 #if defined(IQO_CPU_X86) && defined(IQO_HAVE_SSE4_1)
@@ -52,19 +52,6 @@ namespace {
         return f32x4V;
     }
 
-    __m128 mask_gather_ps(const float * f32Src, __m128i s32x4Indices, __m128i u32x4Mask)
-    {
-        int32_t s32Indices[4];
-        float f32Dst[4];
-        uint32_t b16Mask = _mm_movemask_epi8(u32x4Mask);
-        _mm_storeu_si128((__m128i*)s32Indices, s32x4Indices);
-        for ( int i = 0; i < 4; ++i ) {
-            f32Dst[i] = (b16Mask & 1) ? f32Src[s32Indices[i]] : 0;
-            b16Mask >>= 4;
-        }
-        return _mm_loadu_ps(f32Dst);
-    }
-
     uint8_t cvt_roundss_su8(float v)
     {
         __m128  f32x1V     = _mm_set_ss(v);
@@ -88,18 +75,16 @@ namespace {
 namespace iqo {
 
     template<>
-    class LanczosResizerImpl<ArchSSE4_1> : public ILanczosResizerImpl
+    class AreaResizerImpl<ArchSSE4_1> : public IAreaResizerImpl
     {
     public:
         //! Destructor
-        virtual ~LanczosResizerImpl() {}
+        virtual ~AreaResizerImpl() {}
 
         //! Construct
         virtual void init(
-            unsigned int degree,
             size_t srcW, size_t srcH,
-            size_t dstW, size_t dstH,
-            size_t pxScale
+            size_t dstW, size_t dstH
         );
 
         //! Run image resizing
@@ -109,23 +94,14 @@ namespace iqo {
         );
 
     private:
-        void resizeYborder(
-            ptrdiff_t srcSt, const uint8_t * src,
-            ptrdiff_t dstW, float * dst,
-            ptrdiff_t srcOY,
-            const float * coefs);
         void resizeYmain(
             ptrdiff_t srcSt, const uint8_t * src,
             ptrdiff_t dstW, float * dst,
             ptrdiff_t srcOY,
-            const float * coefs);
+            const float * coefs
+        );
         void resizeX(const float * src, uint8_t * dst);
-        void resizeXborder(
-            const float * src, uint8_t * dst,
-            ptrdiff_t begin, ptrdiff_t end);
-        void resizeXmain(
-            const float * src, uint8_t * dst,
-            ptrdiff_t begin, ptrdiff_t end);
+        void resizeXmain(const float * src, uint8_t * dst);
 
         enum {
             //! for SIMD
@@ -144,31 +120,29 @@ namespace iqo {
         ptrdiff_t m_NumCoordsY;
         std::vector<float > m_TablesX_; //!< m_TablesXWidth * m_NumCoordsX (unrolled)
         float * m_TablesX;              //!< aligned
-        std::vector<float> m_TablesY;   //!< Lanczos table * m_NumCoordsY
+        std::vector<float> m_TablesY;   //!< Area table * m_NumCoordsY
         std::vector<float> m_Work;
         std::vector<int32_t> m_IndicesX;
     };
 
     template<>
-    bool LanczosResizerImpl_hasFeature<ArchSSE4_1>()
+    bool AreaResizerImpl_hasFeature<ArchSSE4_1>()
     {
         HWCap cap;
         return cap.hasSSE4_1();
     }
 
     template<>
-    ILanczosResizerImpl * LanczosResizerImpl_new<ArchSSE4_1>()
+    IAreaResizerImpl * AreaResizerImpl_new<ArchSSE4_1>()
     {
-        return new LanczosResizerImpl<ArchSSE4_1>();
+        return new AreaResizerImpl<ArchSSE4_1>();
     }
 
 
     // Constructor
-    void LanczosResizerImpl<ArchSSE4_1>::init(
-        unsigned int degree,
+    void AreaResizerImpl<ArchSSE4_1>::init(
         size_t srcW, size_t srcH,
-        size_t dstW, size_t dstH,
-        size_t pxScale
+        size_t dstW, size_t dstH
     ) {
         m_SrcW = srcW;
         m_SrcH = srcH;
@@ -182,8 +156,8 @@ namespace iqo {
         size_t rDstW = m_DstW / gcdW;
         size_t rSrcH = m_SrcH / gcdH;
         size_t rDstH = m_DstH / gcdH;
-        m_NumCoefsX = calcNumCoefsForLanczos(degree, rSrcW, rDstW, pxScale);
-        m_NumCoefsY = calcNumCoefsForLanczos(degree, rSrcH, rDstH, pxScale);
+        m_NumCoefsX = calcNumCoefsForArea(rSrcW, rDstW);
+        m_NumCoefsY = calcNumCoefsForArea(rSrcH, rDstH);
         m_NumCoordsX = rDstW;
         m_NumUnrolledCoordsX = std::min(alignCeil(m_DstW, kVecStepX), lcm(m_NumCoordsX, kVecStepX));
         m_NumUnrolledCoordsX /= kVecStepX;
@@ -199,7 +173,7 @@ namespace iqo {
         std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumCoordsX; ++dstX ) {
             float * table = &tablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, table);
+            double sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, table);
             for ( int i = 0; i < m_NumCoefsX; i++ ) {
                 table[i] /= sumCoefs;
             }
@@ -239,7 +213,7 @@ namespace iqo {
         std::vector<float> tablesY(m_NumCoefsY);
         for ( ptrdiff_t dstY = 0; dstY < m_NumCoordsY; ++dstY ) {
             float * table = &m_TablesY[dstY * m_NumCoefsY];
-            double sumCoefs = setLanczosTable(degree, rSrcH, rDstH, dstY, pxScale, m_NumCoefsY, table);
+            double sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
                 table[i] /= sumCoefs;
             }
@@ -254,12 +228,12 @@ namespace iqo {
         m_IndicesX.reserve(alignedDstW);
         m_IndicesX.resize(alignedDstW);
         for ( ptrdiff_t dstX = 0; dstX < alignedDstW; ++dstX ) {
-            int32_t srcOX = dstX * m_SrcW / m_DstW + 1;
+            int32_t srcOX = dstX * m_SrcW / m_DstW;
             m_IndicesX[dstX] = srcOX;
         }
     }
 
-    void LanczosResizerImpl<ArchSSE4_1>::resize(
+    void AreaResizerImpl<ArchSSE4_1>::resize(
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
@@ -275,31 +249,14 @@ namespace iqo {
             return;
         }
 
-        ptrdiff_t numCoefsOn2 = m_NumCoefsY / 2;
-        // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstH / double(m_SrcH))
-        ptrdiff_t mainBegin = ((numCoefsOn2 - 1) * m_DstH + m_SrcH-1) / m_SrcH;
-        ptrdiff_t mainEnd = std::max<ptrdiff_t>(0, (m_SrcH - numCoefsOn2) * m_DstH / m_SrcH);
         const float * tablesY = &m_TablesY[0];
-
-        // border pixels
-#pragma omp parallel for
-        for ( ptrdiff_t dstY = 0; dstY < mainBegin; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * m_SrcW];
-            ptrdiff_t srcOY = dstY * m_SrcH / m_DstH + 1;
-            const float * coefs = &tablesY[dstY % m_NumCoordsY * m_NumCoefsY];
-            resizeYborder(
-                srcSt, &src[0],
-                m_SrcW, work,
-                srcOY,
-                coefs);
-            resizeX(work, &dst[dstSt * dstY]);
-        }
+        ptrdiff_t dstH = m_DstH;
 
         // main loop
 #pragma omp parallel for
-        for ( ptrdiff_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
+        for ( ptrdiff_t dstY = 0; dstY < dstH; ++dstY ) {
             float * work = &m_Work[getThreadNumber() * m_SrcW];
-            ptrdiff_t srcOY = dstY * m_SrcH / m_DstH + 1;
+            ptrdiff_t srcOY = dstY * m_SrcH / m_DstH;
             const float * coefs = &tablesY[dstY % m_NumCoordsY * m_NumCoefsY];
             resizeYmain(
                 srcSt, &src[0],
@@ -307,97 +264,6 @@ namespace iqo {
                 srcOY,
                 coefs);
             resizeX(work, &dst[dstSt * dstY]);
-        }
-
-        // border pixels
-#pragma omp parallel for
-        for ( ptrdiff_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * m_SrcW];
-            ptrdiff_t srcOY = dstY * m_SrcH / m_DstH + 1;
-            const float * coefs = &tablesY[dstY % m_NumCoordsY * m_NumCoefsY];
-            resizeYborder(
-                srcSt, &src[0],
-                m_SrcW, work,
-                srcOY,
-                coefs);
-            resizeX(work, &dst[dstSt * dstY]);
-        }
-    }
-
-    //! resize vertical (border loop)
-    //!
-    //! @param srcSt  Stride in src (in byte)
-    //! @param src    A row of source
-    //! @param dst    A row of destination
-    //! @param srcOY  The origin of current line
-    //! @param coefs  The coefficients
-    void LanczosResizerImpl<ArchSSE4_1>::resizeYborder(
-        ptrdiff_t srcSt, const uint8_t * src,
-        ptrdiff_t dstW, float * __restrict dst,
-        ptrdiff_t srcOY,
-        const float * coefs
-    ) {
-        ptrdiff_t numCoefsOn2 = m_NumCoefsY / 2;
-        ptrdiff_t vecLen = alignFloor(dstW, kVecStepY);
-        ptrdiff_t numCoefsY = m_NumCoefsY;
-        ptrdiff_t srcH = m_SrcH;
-
-        for ( ptrdiff_t dstX = 0; dstX < vecLen; dstX += kVecStepY ) {
-            // nume = 0;
-            __m128 f32x4Nume0 = _mm_setzero_ps();
-            __m128 f32x4Nume1 = _mm_setzero_ps();
-            __m128 f32x4Nume2 = _mm_setzero_ps();
-            __m128 f32x4Nume3 = _mm_setzero_ps();
-            float deno = 0;
-
-            for ( ptrdiff_t i = 0; i < numCoefsY; ++i ) {
-                ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
-                if ( 0 <= srcY && srcY < srcH ) {
-                    // coef = coefs[i];
-                    __m128  f32x4Coef   = _mm_set1_ps(coefs[i]);
-                    // nume += src[dstX + srcSt*srcY] * coef;
-                    __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                    __m128i u8x4Src0    = u8x16Src;
-                    __m128i u8x4Src1    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 3, 3, 1));
-                    __m128i u8x4Src2    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 3, 3, 2));
-                    __m128i u8x4Src3    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 3, 3, 3));
-                    __m128  f32x4Src0   = _mm_cvtepi32_ps(_mm_cvtepu8_epi32(u8x4Src0));
-                    __m128  f32x4Src1   = _mm_cvtepi32_ps(_mm_cvtepu8_epi32(u8x4Src1));
-                    __m128  f32x4Src2   = _mm_cvtepi32_ps(_mm_cvtepu8_epi32(u8x4Src2));
-                    __m128  f32x4Src3   = _mm_cvtepi32_ps(_mm_cvtepu8_epi32(u8x4Src3));
-                    f32x4Nume0 = _mm_add_ps(_mm_mul_ps(f32x4Src0, f32x4Coef), f32x4Nume0);
-                    f32x4Nume1 = _mm_add_ps(_mm_mul_ps(f32x4Src1, f32x4Coef), f32x4Nume1);
-                    f32x4Nume2 = _mm_add_ps(_mm_mul_ps(f32x4Src2, f32x4Coef), f32x4Nume2);
-                    f32x4Nume3 = _mm_add_ps(_mm_mul_ps(f32x4Src3, f32x4Coef), f32x4Nume3);
-                    deno += coefs[i];
-                }
-            }
-
-            // dst[dstX] = nume / deno;
-            // precision of RCPPS is only 11-bit, but it grater than precision of source image (8-bit).
-            __m128 f32x4RcpDeno = _mm_rcp_ps(_mm_set1_ps(deno));
-            __m128 f32x4Dst0    = _mm_mul_ps(f32x4Nume0, f32x4RcpDeno);
-            __m128 f32x4Dst1    = _mm_mul_ps(f32x4Nume1, f32x4RcpDeno);
-            __m128 f32x4Dst2    = _mm_mul_ps(f32x4Nume2, f32x4RcpDeno);
-            __m128 f32x4Dst3    = _mm_mul_ps(f32x4Nume3, f32x4RcpDeno);
-            _mm_storeu_ps(&dst[dstX +  0], f32x4Dst0);
-            _mm_storeu_ps(&dst[dstX +  4], f32x4Dst1);
-            _mm_storeu_ps(&dst[dstX +  8], f32x4Dst2);
-            _mm_storeu_ps(&dst[dstX + 12], f32x4Dst3);
-        }
-
-        for ( ptrdiff_t dstX = vecLen; dstX < dstW; dstX++ ) {
-            float nume = 0;
-            float deno = 0;
-
-            for ( ptrdiff_t i = 0; i < numCoefsY; ++i ) {
-                ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
-                float    coef = coefs[i];
-                nume += src[dstX + srcSt * srcY] * coef;
-                deno += coef;
-            }
-
-            dst[dstX] = nume / deno;
         }
     }
 
@@ -408,13 +274,12 @@ namespace iqo {
     //! @param dst    A row of destination
     //! @param srcOY  The origin of current line
     //! @param coefs  The coefficients
-    void LanczosResizerImpl<ArchSSE4_1>::resizeYmain(
+    void AreaResizerImpl<ArchSSE4_1>::resizeYmain(
         ptrdiff_t srcSt, const uint8_t * src,
         ptrdiff_t dstW, float * __restrict dst,
         ptrdiff_t srcOY,
         const float * coefs
     ) {
-        ptrdiff_t numCoefsOn2 = m_NumCoefsY / 2;
         ptrdiff_t vecLen = alignFloor(dstW, kVecStepY);
         ptrdiff_t numCoefsY = m_NumCoefsY;
 
@@ -426,7 +291,7 @@ namespace iqo {
             __m128 f32x4Nume3 = _mm_setzero_ps();
 
             for ( ptrdiff_t i = 0; i < numCoefsY; ++i ) {
-                ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
+                ptrdiff_t srcY = srcOY + i;
                 // coef = coefs[i];
                 __m128  f32x4Coef   = _mm_set1_ps(coefs[i]);
                 // nume += src[dstX + srcSt*srcY] * coef;
@@ -460,7 +325,7 @@ namespace iqo {
             float nume = 0;
 
             for ( ptrdiff_t i = 0; i < numCoefsY; ++i ) {
-                ptrdiff_t srcY = srcOY - numCoefsOn2 + i;
+                ptrdiff_t srcY = srcOY + i;
                 float    coef = coefs[i];
                 nume += src[dstX + srcSt * srcY] * coef;
             }
@@ -469,7 +334,7 @@ namespace iqo {
         }
     }
 
-    void LanczosResizerImpl<ArchSSE4_1>::resizeX(const float * src, uint8_t * __restrict dst)
+    void AreaResizerImpl<ArchSSE4_1>::resizeX(const float * src, uint8_t * __restrict dst)
     {
         if ( m_SrcW == m_DstW ) {
             ptrdiff_t dstW = m_DstW;
@@ -479,107 +344,24 @@ namespace iqo {
             return;
         }
 
-        ptrdiff_t numCoefsOn2 = m_NumCoefsX / 2;
-        // mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstW / double(m_SrcW))
-        ptrdiff_t mainBegin = alignCeil(((numCoefsOn2 - 1) * m_DstW + m_SrcW-1) / m_SrcW, kVecStepX);
-        ptrdiff_t mainEnd = std::max<ptrdiff_t>(0, (m_SrcW - numCoefsOn2) * m_DstW / m_SrcW);
-        ptrdiff_t mainLen = alignFloor(mainEnd - mainBegin, kVecStepX);
-        mainEnd = mainBegin + mainLen;
-
-        resizeXborder(src, dst, 0,         mainBegin);
-        resizeXmain  (src, dst, mainBegin, mainEnd);
-        resizeXborder(src, dst, mainEnd,   m_DstW);
-    }
-
-    //! resize horizontal (border loop)
-    //!
-    //! @param src    A row of source
-    //! @param dst    A row of destination
-    //! @param begin  Position of a first pixel
-    //! @param end    Position of next of a last pixel
-    void LanczosResizerImpl<ArchSSE4_1>::resizeXborder(
-        const float * src, uint8_t * __restrict dst,
-        ptrdiff_t begin, ptrdiff_t end
-    ) {
-        ptrdiff_t numCoefsOn2 = m_NumCoefsX / 2;
-        const float * coefs = &m_TablesX[0];
-        const int32_t * indices = &m_IndicesX[0];
-        ptrdiff_t tableSize = m_TablesXWidth * m_NumUnrolledCoordsX;
-        ptrdiff_t numCoefsX = m_NumCoefsX;
-
-        const __m128i s32x4k_1  = _mm_set1_epi32(-1);
-        const __m128i s32x4SrcW = _mm_set1_epi32(m_SrcW);
-        ptrdiff_t iCoef = begin / kVecStepX % m_NumUnrolledCoordsX * m_TablesXWidth;
-        for ( ptrdiff_t dstX = begin; dstX < end; dstX += kVecStepX ) {
-            // nume             = 0;
-            __m128 f32x4Nume0   = _mm_setzero_ps();
-            __m128 f32x4Nume1   = _mm_setzero_ps();
-            // deno             = 0;
-            __m128 f32x4Deno0   = _mm_setzero_ps();
-            __m128 f32x4Deno1   = _mm_setzero_ps();
-            // srcOX            = floor(dstX / scale) + 1;
-            __m128i s32x4SrcOX0 = _mm_loadu_si128((const __m128i*)&indices[dstX + 0]);
-            __m128i s32x4SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX + 4]);
-
-            for ( ptrdiff_t i = 0; i < numCoefsX; ++i ) {
-                // srcX             = srcOX - numCoefsOn2 + i;
-                __m128i s32x4Offset = _mm_set1_epi32(i - numCoefsOn2);
-                __m128i s32x4SrcX0  = _mm_add_epi32(s32x4SrcOX0, s32x4Offset);
-                __m128i s32x4SrcX1  = _mm_add_epi32(s32x4SrcOX1, s32x4Offset);
-                // if ( 0 <= srcX && srcX < m_SrcW )
-                __m128i u32x4Mask0  = _mm_and_si128(_mm_cmpgt_epi32(s32x4SrcX0, s32x4k_1), _mm_cmpgt_epi32(s32x4SrcW, s32x4SrcX0));
-                __m128i u32x4Mask1  = _mm_and_si128(_mm_cmpgt_epi32(s32x4SrcX1, s32x4k_1), _mm_cmpgt_epi32(s32x4SrcW, s32x4SrcX1));
-                // iNume            += src[srcX] * coefs[iCoef];
-                __m128  f32x4Src0   = mask_gather_ps(src, s32x4SrcX0, u32x4Mask0);
-                __m128  f32x4Src1   = mask_gather_ps(src, s32x4SrcX1, u32x4Mask1);
-                __m128  f32x4Coefs0 = _mm_load_ps(&coefs[iCoef + 0]);
-                __m128  f32x4Coefs1 = _mm_load_ps(&coefs[iCoef + 4]);
-                __m128  f32x4iNume0 = _mm_mul_ps(f32x4Src0, f32x4Coefs0);
-                __m128  f32x4iNume1 = _mm_mul_ps(f32x4Src1, f32x4Coefs1);
-                // nume   += iNume;
-                f32x4Nume0 = _mm_add_ps(f32x4Nume0, f32x4iNume0);
-                f32x4Nume1 = _mm_add_ps(f32x4Nume1, f32x4iNume1);
-                // deno   += coefs[iCoef];
-                f32x4Deno0 = _mm_add_ps(f32x4Deno0, f32x4Coefs0);
-                f32x4Deno1 = _mm_add_ps(f32x4Deno1, f32x4Coefs1);
-
-                iCoef += kVecStepX;
-            }
-
-            // dst[dstX] = round(nume / deno)
-            // precision of RCPPS is only 11-bit, but it grater than precision of source image (8-bit).
-            __m128  f32x4RcpDeno0 = _mm_rcp_ps(f32x4Deno0);
-            __m128  f32x4RcpDeno1 = _mm_rcp_ps(f32x4Deno1);
-            __m128  f32x4Dst0     = _mm_mul_ps(f32x4Nume0, f32x4RcpDeno0);
-            __m128  f32x4Dst1     = _mm_mul_ps(f32x4Nume1, f32x4RcpDeno1);
-            __m128i u8x8Dst       = cvt_roundps_epu8(f32x4Dst0, f32x4Dst1);
-            _mm_storel_epi64((__m128i*)&dst[dstX], u8x8Dst);
-
-            // iCoef = dstX % tableSize;
-            if ( iCoef == tableSize ) {
-                iCoef = 0;
-            }
-        }
+        resizeXmain(src, dst);
     }
 
     //! resize horizontal (main loop)
     //!
     //! @param src    A row of source
     //! @param dst    A row of destination
-    //! @param begin  Position of a first pixel
-    //! @param end    Position of next of a last pixel
-    void LanczosResizerImpl<ArchSSE4_1>::resizeXmain(
-        const float * src, uint8_t * __restrict dst,
-        ptrdiff_t begin, ptrdiff_t end
-    ) {
-        ptrdiff_t numCoefsOn2 = m_NumCoefsX / 2;
+    void AreaResizerImpl<ArchSSE4_1>::resizeXmain(const float * src, uint8_t * __restrict dst)
+    {
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
         ptrdiff_t tableSize = m_TablesXWidth * m_NumUnrolledCoordsX;
         ptrdiff_t numCoefsX = m_NumCoefsX;
+        ptrdiff_t dstW = m_DstW;
+        ptrdiff_t vecLen = alignFloor(dstW, kVecStepX);
 
-        ptrdiff_t iCoef = begin / kVecStepX % m_NumUnrolledCoordsX * m_TablesXWidth;
-        for ( ptrdiff_t dstX = begin; dstX < end; dstX += kVecStepX ) {
+        ptrdiff_t iCoef = 0;
+        for ( ptrdiff_t dstX = 0; dstX < vecLen; dstX += kVecStepX ) {
             // nume             = 0;
             __m128 f32x4Nume0   = _mm_setzero_ps();
             __m128 f32x4Nume1   = _mm_setzero_ps();
@@ -588,8 +370,8 @@ namespace iqo {
             __m128i s32x4SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX + 4]);
 
             for ( ptrdiff_t i = 0; i < numCoefsX; ++i ) {
-                // srcX             = srcOX - numCoefsOn2 + i;
-                __m128i s32x4Offset = _mm_set1_epi32(i - numCoefsOn2);
+                // srcX             = srcOX + i;
+                __m128i s32x4Offset = _mm_set1_epi32(i);
                 __m128i s32x4SrcX0  = _mm_add_epi32(s32x4SrcOX0, s32x4Offset);
                 __m128i s32x4SrcX1  = _mm_add_epi32(s32x4SrcOX1, s32x4Offset);
                 // iNume            += src[srcX] * coefs[iCoef];
@@ -617,6 +399,22 @@ namespace iqo {
                 iCoef = 0;
             }
         }
+
+        for ( ptrdiff_t dstX = vecLen; dstX < dstW; ++dstX ) {
+            ptrdiff_t srcOX = indices[dstX];
+            float sum = 0;
+
+            // calc index of coefs from unrolled table
+            iCoef = (dstX % kVecStepX) + (dstX / kVecStepX % m_NumUnrolledCoordsX * m_TablesXWidth);
+
+            for ( ptrdiff_t i = 0; i < numCoefsX; ++i ) {
+                ptrdiff_t srcX = srcOX + i;
+                sum += src[srcX] * coefs[iCoef];
+                iCoef += kVecStepX;
+            }
+
+            dst[dstX] = cvt_roundss_su8(sum);
+        }
     }
 
 }
@@ -626,13 +424,13 @@ namespace iqo {
 namespace iqo {
 
     template<>
-    bool LanczosResizerImpl_hasFeature<ArchSSE4_1>()
+    bool AreaResizerImpl_hasFeature<ArchSSE4_1>()
     {
         return false;
     }
 
     template<>
-    ILanczosResizerImpl * LanczosResizerImpl_new<ArchSSE4_1>()
+    IAreaResizerImpl * AreaResizerImpl_new<ArchSSE4_1>()
     {
         return NULL;
     }

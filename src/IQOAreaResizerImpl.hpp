@@ -2,23 +2,21 @@
 #include <cmath>
 #include <algorithm>
 
-#include "libiqo/LanczosResizer.hpp"
+#include "libiqo/AreaResizer.hpp"
 #include "libiqo/Types.hpp"
 
 namespace iqo {
 
-    class ILanczosResizerImpl
+    class IAreaResizerImpl
     {
     public:
         //! Destructor
-        virtual ~ILanczosResizerImpl() {}
+        virtual ~IAreaResizerImpl() {}
 
         //! Construct impl
         virtual void init(
-            unsigned int degree,
             size_t srcW, size_t srcH,
-            size_t dstW, size_t dstH,
-            size_t pxScale
+            size_t dstW, size_t dstH
         ) = 0;
 
         //! Run image resizing
@@ -31,23 +29,19 @@ namespace iqo {
     //! MUST NOT define inline function to inherited function.
     //! Because class method inline function will be weak symbol.
     template<class ARCH>
-    class LanczosResizerImpl : public ILanczosResizerImpl
+    class AreaResizerImpl : public IAreaResizerImpl
     {
     public:
-        virtual ~LanczosResizerImpl() {}
+        virtual ~AreaResizerImpl() {}
 
         virtual void init(
-            unsigned int degree,
             size_t srcW, size_t srcH,
-            size_t dstW, size_t dstH,
-            size_t pxScale
+            size_t dstW, size_t dstH
         ) {
-            (void)degree;
             (void)srcW;
             (void)srcH;
             (void)dstW;
             (void)dstH;
-            (void)pxScale;
         }
 
         virtual void resize(
@@ -63,28 +57,28 @@ namespace iqo {
 
     //! Returns feature capability
     template<class ARCH>
-    bool LanczosResizerImpl_hasFeature()
+    bool AreaResizerImpl_hasFeature()
     {
         return false;
     }
 
-    //! new LanczosResizerImpl<ARCH>
+    //! new AreaResizerImpl<ARCH>
     template<class ARCH>
-    ILanczosResizerImpl * LanczosResizerImpl_new()
+    IAreaResizerImpl * AreaResizerImpl_new()
     {
         return NULL;
     }
 
-    template<> bool LanczosResizerImpl_hasFeature<ArchGeneric>();
-    template<> bool LanczosResizerImpl_hasFeature<ArchSSE4_1>();
-    template<> bool LanczosResizerImpl_hasFeature<ArchAVX2FMA>();
-    template<> bool LanczosResizerImpl_hasFeature<ArchAVX512>();
-    template<> bool LanczosResizerImpl_hasFeature<ArchNEON>();
-    template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchGeneric>();
-    template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchSSE4_1>();
-    template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX2FMA>();
-    template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX512>();
-    template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchNEON>();
+    template<> bool AreaResizerImpl_hasFeature<ArchGeneric>();
+    template<> bool AreaResizerImpl_hasFeature<ArchSSE4_1>();
+    template<> bool AreaResizerImpl_hasFeature<ArchAVX2FMA>();
+    template<> bool AreaResizerImpl_hasFeature<ArchAVX512>();
+    template<> bool AreaResizerImpl_hasFeature<ArchNEON>();
+    template<> IAreaResizerImpl * AreaResizerImpl_new<ArchGeneric>();
+    template<> IAreaResizerImpl * AreaResizerImpl_new<ArchSSE4_1>();
+    template<> IAreaResizerImpl * AreaResizerImpl_new<ArchAVX2FMA>();
+    template<> IAreaResizerImpl * AreaResizerImpl_new<ArchAVX512>();
+    template<> IAreaResizerImpl * AreaResizerImpl_new<ArchNEON>();
 
 
     //! Linear integer interpolation
@@ -143,28 +137,20 @@ namespace iqo {
         ptrdiff_t m_Y;
     };
 
-    //! Calculate number of coefficients for Lanczos resampling
-    size_t calcNumCoefsForLanczos(int degree, size_t srcLen, size_t dstLen, size_t pxScale);
+    //! Calculate number of coefficients for area resampling
+    size_t calcNumCoefsForArea(size_t srcLen, size_t dstLen);
 
-    //! @brief Set Lanczos table
-    //! @param degree     Window size of Lanczos (ex. A=2 means Lanczos2)
+    //! @brief Set Area table
     //! @param srcLen     Number of pixels of the source image
     //! @param dstLen     Number of pixels of the destination image
     //! @param dstOffset  The coordinate of the destination image
-    //! @param pxScale    Scale of a pixel (ex. 2 when U plane of YUV420 image)
     //! @param numCoefs   Size of table
     //! @param fTable     The table (float or double)
     //! @return Sum of the table
-    //!
-    //! Calculate Lanczos coefficients from `-degree` to `+degree`.
-    //!
-    //! tableLen should be `2*degree` when up sampling.
-    float setLanczosTable(
-        int degree,
+    float setAreaTable(
         size_t srcLen,
         size_t dstLen,
         ptrdiff_t dstOffset,
-        size_t pxScale,
         int numCoefs,
         float * fTable
     );

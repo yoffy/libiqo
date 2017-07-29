@@ -27,28 +27,8 @@ namespace iqo {
         return sinc(x) * sinc(x / degree);
     }
 
-    //! @brief Set Lanczos table
-    //! @param degree     Window size of Lanczos (ex. A=2 means Lanczos2)
-    //! @param srcLen     Number of pixels of the source image
-    //! @param dstLen     Number of pixels of the destination image
-    //! @param dstOffset  The coordinate of the destination image
-    //! @param pxScale  Scale of a pixel (ex. 2 when U plane of YUV420 image)
-    //! @param tableLen   Size of table
-    //! @param fTable     The table
-    //! @return Sum of the table
-    //!
-    //! Calculate Lanczos coefficients from `-degree` to `+degree`.
-    //!
-    //! tableLen should be `2*degree` when up sampling.
-    template<typename T>
-    T setLanczosTable(
-        int degree,
-        size_t srcLen,
-        size_t dstLen,
-        ptrdiff_t dstOffset,
-        size_t pxScale,
-        int tableLen,
-        T * __restrict fTable)
+    //! Calculate number of coefficients for Lanczos resampling
+    size_t calcNumCoefsForLanczos(int degree, size_t srcLen, size_t dstLen, size_t pxScale)
     {
         // down-sampling (ex. lanczos3)
         //
@@ -99,6 +79,43 @@ namespace iqo {
         //  o      o      o      o      o
         //  +-------------+
 
+        size_t numCoefs;
+
+        if ( srcLen <= dstLen ) {
+            // horizontal: up-sampling
+            numCoefs = 2 * degree;
+        } else {
+            // vertical: down-sampling
+            // tableLen = 2*degree / scale
+            size_t degree2 = std::max<size_t>(1, degree / pxScale);
+            numCoefs = 2 * ptrdiff_t(std::ceil((degree2 * srcLen) / double(dstLen)));
+        }
+
+        return numCoefs;
+    }
+
+    //! @brief Set Lanczos table
+    //! @param degree     Window size of Lanczos (ex. A=2 means Lanczos2)
+    //! @param srcLen     Number of pixels of the source image
+    //! @param dstLen     Number of pixels of the destination image
+    //! @param dstOffset  The coordinate of the destination image
+    //! @param pxScale  Scale of a pixel (ex. 2 when U plane of YUV420 image)
+    //! @param tableLen   Size of table
+    //! @param fTable     The table
+    //! @return Sum of the table
+    //!
+    //! Calculate Lanczos coefficients from `-degree` to `+degree`.
+    //!
+    //! tableLen should be `2*degree` when up sampling.
+    float setLanczosTable(
+        int degree,
+        size_t srcLen,
+        size_t dstLen,
+        ptrdiff_t dstOffset,
+        size_t pxScale,
+        int numCoefs,
+        float * __restrict fTable)
+    {
         //   o: center of a pixel (on a coordinate)
         //   |: boundary of pixels
         //
@@ -159,12 +176,12 @@ namespace iqo {
             pxScale = 1;
         }
 
-        T fSum = 0;
+        float fSum = 0;
 
-        for ( ptrdiff_t i = 0; i < tableLen; ++i ) {
+        for ( ptrdiff_t i = 0; i < numCoefs; ++i ) {
             //     x = beginX + i * scale * pxScale
             double x = beginX + (i * dstLen * pxScale) / double(srcLen);
-            T v = T(lanczos(degree, x));
+            float v = float(lanczos(degree, x));
             fTable[i] = v;
             fSum     += v;
         }
@@ -288,26 +305,16 @@ namespace iqo {
         m_DstH = dstH;
 
         // setup coefficients
-        if ( m_SrcW <= m_DstW ) {
-            // horizontal: up-sampling
-            m_NumCoefsX = 2 * degree;
-        } else {
-            // vertical: down-sampling
-            // tableLen = 2*degree / scale
-            size_t degree2 = std::max<size_t>(1, degree / pxScale);
-            m_NumCoefsX = 2 * ptrdiff_t(std::ceil((degree2 * m_SrcW) / double(m_DstW)));
-        }
-        if ( m_SrcH <= m_DstH ) {
-            // vertical: up-sampling
-            m_NumCoefsY = 2 * degree;
-        } else {
-            // vertical: down-sampling
-            // tableLen = 2*degree / scale
-            size_t degree2 = std::max<size_t>(1, degree / pxScale);
-            m_NumCoefsY = 2 * ptrdiff_t(std::ceil((degree2 * m_SrcH) / double(m_DstH)));
-        }
-        m_NumTablesX = m_DstW / gcd(m_SrcW, m_DstW);
-        m_NumTablesY = m_DstH / gcd(m_SrcH, m_DstH);
+        size_t gcdW = gcd(m_SrcW, m_DstW);
+        size_t gcdH = gcd(m_SrcH, m_DstH);
+        size_t rSrcW = m_SrcW / gcdW;
+        size_t rDstW = m_DstW / gcdW;
+        size_t rSrcH = m_SrcH / gcdH;
+        size_t rDstH = m_DstH / gcdH;
+        m_NumCoefsX = calcNumCoefsForLanczos(degree, rSrcW, rDstW, pxScale);
+        m_NumCoefsY = calcNumCoefsForLanczos(degree, rSrcH, rDstH, pxScale);
+        m_NumTablesX = rDstW;
+        m_NumTablesY = rDstH;
         m_TablesX.reserve(m_NumCoefsX * m_NumTablesX);
         m_TablesX.resize(m_NumCoefsX * m_NumTablesX);
         m_TablesY.reserve(m_NumCoefsY * m_NumTablesY);
@@ -316,13 +323,13 @@ namespace iqo {
         std::vector<float> tablesX(m_NumCoefsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
             int16_t * table = &m_TablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setLanczosTable(degree, m_SrcW, m_DstW, dstX, pxScale, m_NumCoefsX, &tablesX[0]);
+            double sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, &tablesX[0]);
             adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, kBias15, &table[0]);
         }
         std::vector<float> tablesY(m_NumCoefsY);
         for ( ptrdiff_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
             int16_t * table = &m_TablesY[dstY * m_NumCoefsY];
-            double sumCoefs = setLanczosTable(degree, m_SrcH, m_DstH, dstY, pxScale, m_NumCoefsY, &tablesY[0]);
+            double sumCoefs = setLanczosTable(degree, rSrcH, rDstH, dstY, pxScale, m_NumCoefsY, &tablesY[0]);
             adjustCoefs(&tablesY[0], &tablesY[m_NumCoefsY], sumCoefs, kBias, &table[0]);
         }
 
@@ -351,13 +358,13 @@ namespace iqo {
             dstSum += dst[i];
         }
         while ( dstSum < k1_0 ) {
-            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[m_NumCoefsX]));
+            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[numCoefs]));
             dst[i]++;
             srcBegin[i] = 0;
             dstSum++;
         }
         while ( dstSum > k1_0 ) {
-            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[m_NumCoefsX]));
+            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[numCoefs]));
             dst[i]--;
             srcBegin[i] = 0;
             dstSum--;
