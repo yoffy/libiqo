@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstddef>
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>

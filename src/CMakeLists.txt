@@ -4,6 +4,7 @@ add_library(iqo IQOHWCap.cpp
                 IQOAreaResizerImpl_SSE4_1.cpp
                 IQOAreaResizerImpl_AVX2FMA.cpp
                 IQOAreaResizerImpl_AVX512.cpp
+                IQOAreaResizerImpl_NEON.cpp
                 IQOLanczosResizer.cpp
                 IQOLanczosResizerImpl_Generic.cpp
                 IQOLanczosResizerImpl_SSE4_1.cpp
@@ -33,14 +34,14 @@ endif()
 
 CHECK_CXX_COMPILER_FLAG("-march=core-avx2" COMPILER_SUPPORTS_MARCH_CORE_AVX2)
 if ( COMPILER_SUPPORTS_MARCH_CORE_AVX2 )
-    set_property(SOURCE IQOAreaResizerImpl_AVX2FMA.cpp APPEND_STRING PROPERTY COMPILE_FLAGS "-march=core-avx2")
-    set_property(SOURCE IQOLanczosResizerImpl_AVX2FMA.cpp APPEND_STRING PROPERTY COMPILE_FLAGS "-march=core-avx2")
+    set_property(SOURCE IQOAreaResizerImpl_AVX2FMA.cpp      APPEND_STRING PROPERTY COMPILE_FLAGS "-march=core-avx2")
+    set_property(SOURCE IQOLanczosResizerImpl_AVX2FMA.cpp   APPEND_STRING PROPERTY COMPILE_FLAGS "-march=core-avx2")
 endif()
 
 CHECK_CXX_COMPILER_FLAG("-march=skylake-avx512" COMPILER_SUPPORTS_MARCH_SKYLAKE_AVX512)
 if ( COMPILER_SUPPORTS_MARCH_SKYLAKE_AVX512 )
-    set_property(SOURCE IQOAreaResizerImpl_AVX512.cpp  APPEND_STRING PROPERTY COMPILE_FLAGS "-march=skylake-avx512")
-    set_property(SOURCE IQOLanczosResizerImpl_AVX512.cpp  APPEND_STRING PROPERTY COMPILE_FLAGS "-march=skylake-avx512")
+    set_property(SOURCE IQOAreaResizerImpl_AVX512.cpp       APPEND_STRING PROPERTY COMPILE_FLAGS "-march=skylake-avx512")
+    set_property(SOURCE IQOLanczosResizerImpl_AVX512.cpp    APPEND_STRING PROPERTY COMPILE_FLAGS "-march=skylake-avx512")
 endif()
 
 
@@ -48,5 +49,6 @@ endif()
 
 CHECK_CXX_COMPILER_FLAG("-march=armv7-a -mfpu=neon" COMPILER_SUPPORTS_MARCH_ARMV7_A_NEON)
 if ( COMPILER_SUPPORTS_MARCH_ARMV7_A_NEON )
+    set_property(SOURCE IQOAreaResizerImpl_NEON.cpp     APPEND_STRING PROPERTY COMPILE_FLAGS "-march=armv7-a -mfpu=neon")
     set_property(SOURCE IQOLanczosResizerImpl_NEON.cpp  APPEND_STRING PROPERTY COMPILE_FLAGS "-march=armv7-a -mfpu=neon")
 endif()

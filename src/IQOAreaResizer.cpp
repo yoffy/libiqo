@@ -17,6 +17,10 @@ namespace iqo {
         } else if ( AreaResizerImpl_hasFeature<ArchSSE4_1>() ) {
             m_Impl = AreaResizerImpl_new<ArchSSE4_1>();
         } else
+#elif defined(IQO_CPU_ARM)
+        if ( AreaResizerImpl_hasFeature<ArchNEON>() ) {
+            m_Impl = AreaResizerImpl_new<ArchNEON>();
+        } else
 #endif
         {
             m_Impl = AreaResizerImpl_new<ArchGeneric>();
