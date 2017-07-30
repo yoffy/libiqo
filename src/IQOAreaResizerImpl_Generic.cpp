@@ -70,7 +70,7 @@ namespace iqo {
         size_t srcLen,
         size_t dstLen,
         ptrdiff_t dstOffset,
-        int numCoefs,
+        ptrdiff_t numCoefs,
         float * __restrict fTable
     ) {
 
@@ -207,13 +207,13 @@ namespace iqo {
         std::vector<float> tablesX(m_NumCoefsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
             uint16_t * table = &m_TablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, &tablesX[0]);
+            float sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, &tablesX[0]);
             adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, kBias15, &table[0]);
         }
         std::vector<float> tablesY(m_NumCoefsY);
         for ( ptrdiff_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
             uint16_t * table = &m_TablesY[dstY * m_NumCoefsY];
-            double sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, &tablesY[0]);
+            float sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, &tablesY[0]);
             adjustCoefs(&tablesY[0], &tablesY[m_NumCoefsY], sumCoefs, kBias, &table[0]);
         }
 
@@ -238,7 +238,7 @@ namespace iqo {
         int dstSum = 0;
 
         for ( size_t i = 0; i < numCoefs; ++i ) {
-            dst[i] = round(srcBegin[i] * bias / srcSum);
+            dst[i] = uint16_t(round(srcBegin[i] * bias / srcSum));
             dstSum += dst[i];
         }
         while ( dstSum < k1_0 ) {
@@ -369,7 +369,7 @@ namespace iqo {
                 sum += src[srcX] * coefs[i];
             }
 
-            dst[dstX] = clamp<uint16_t>(0, 255, convertToInt(sum, kBias15Bit+kBiasBit));
+            dst[dstX] = uint8_t(clamp<uint16_t>(0, 255, convertToInt(sum, kBias15Bit+kBiasBit)));
         }
     }
 

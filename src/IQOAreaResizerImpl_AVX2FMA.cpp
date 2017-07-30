@@ -108,7 +108,7 @@ namespace iqo {
         ptrdiff_t m_SrcH;
         ptrdiff_t m_DstW;
         ptrdiff_t m_DstH;
-        ptrdiff_t m_NumCoefsX;
+        int32_t   m_NumCoefsX;
         ptrdiff_t m_NumCoefsY;
         ptrdiff_t m_NumCoordsX;
         ptrdiff_t m_NumUnrolledCoordsX;
@@ -152,7 +152,7 @@ namespace iqo {
         size_t rDstW = m_DstW / gcdW;
         size_t rSrcH = m_SrcH / gcdH;
         size_t rDstH = m_DstH / gcdH;
-        m_NumCoefsX = calcNumCoefsForArea(rSrcW, rDstW);
+        m_NumCoefsX = int32_t(calcNumCoefsForArea(rSrcW, rDstW));
         m_NumCoefsY = calcNumCoefsForArea(rSrcH, rDstH);
         m_NumCoordsX = rDstW;
         m_NumUnrolledCoordsX = std::min(alignCeil(m_DstW, kVecStepX), lcm(m_NumCoordsX, kVecStepX));
@@ -168,7 +168,7 @@ namespace iqo {
         std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumCoordsX; ++dstX ) {
             float * table = &tablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, table);
+            float sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
                 table[i] /= sumCoefs;
             }
@@ -206,7 +206,7 @@ namespace iqo {
 
         for ( ptrdiff_t dstY = 0; dstY < m_NumCoordsY; ++dstY ) {
             float * table = &m_TablesY[dstY * m_NumCoefsY];
-            double sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, table);
+            float sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
                 table[i] /= sumCoefs;
             }
@@ -221,8 +221,8 @@ namespace iqo {
         m_IndicesX.reserve(alignedDstW);
         m_IndicesX.resize(alignedDstW);
         for ( ptrdiff_t dstX = 0; dstX < alignedDstW; ++dstX ) {
-            //       srcOX = floor(dstX / scale)
-            ptrdiff_t srcOX = dstX * m_SrcW / m_DstW;
+            //      srcOX = floor(dstX / scale)
+            int32_t srcOX = int32_t(dstX * rSrcW / rDstW);
             m_IndicesX[dstX] = srcOX;
         }
     }
@@ -338,7 +338,7 @@ namespace iqo {
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
         ptrdiff_t tableSize = m_TablesXWidth * m_NumUnrolledCoordsX;
-        ptrdiff_t numCoefsX = m_NumCoefsX;
+        int32_t numCoefsX = m_NumCoefsX;
         ptrdiff_t dstW = m_DstW;
         ptrdiff_t vecLen = alignFloor(dstW, kVecStepX);
 
@@ -351,9 +351,9 @@ namespace iqo {
             __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
             __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
 
-            for ( ptrdiff_t i = 0; i < numCoefsX; ++i ) {
+            for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 //ptrdiff_t srcX = indices[dstX + j] + offset;
-                __m256i s32x8Offset   = _mm256_set1_epi32(i);
+                __m256i s32x8Offset = _mm256_set1_epi32(i);
                 __m256i s32x8SrcX0 = _mm256_add_epi32(s32x8SrcOX0, s32x8Offset);
                 __m256i s32x8SrcX8 = _mm256_add_epi32(s32x8SrcOX8, s32x8Offset);
 

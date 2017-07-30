@@ -23,8 +23,15 @@ Image processing library for C++.
 Run `cmake` and `make` in this directory.
 
 ```
-$ cmake .
+$ cmake -D CMAKE_BUILD_TYPE=Release .
 $ make
+```
+
+or
+
+```
+C:\libiqo> cmake -G "Visual Studio 15 2017 Win64" .
+C:\libiqo> cmake --build . --config Release
 ```
 
 It outputs the library into `lib` directory.
@@ -40,6 +47,5 @@ It outputs the library into `lib` directory.
 | option                         | description                                      |
 |--------------------------------|--------------------------------------------------|
 | WITH_OPENMP=ON                 | use OpenMP multi threading library (default:OFF) |
-| TARGET_ARCH=arch               | optimize for `arch`. ex. `armv7-a` on ARM.       |
 | CMAKE_CXX_COMPILER=compiler    | use `compiler` to compile                        |
-
+| CMAKE_BUILD_TYPE=type          | Debug or Release                                 |

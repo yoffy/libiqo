@@ -165,7 +165,7 @@ namespace iqo {
         size_t dstLen,
         ptrdiff_t dstOffset,
         size_t pxScale,
-        int numCoefs,
+        ptrdiff_t numCoefs,
         float * fTable
     );
 

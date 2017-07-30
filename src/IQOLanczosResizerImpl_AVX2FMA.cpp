@@ -116,11 +116,11 @@ namespace iqo {
             kVecStepX   = 16, //!< __m256 x 2
             kVecStepY   = 16, //!< __m256 x 2
         };
-        ptrdiff_t m_SrcW;
+        int32_t   m_SrcW;
         ptrdiff_t m_SrcH;
         ptrdiff_t m_DstW;
         ptrdiff_t m_DstH;
-        ptrdiff_t m_NumCoefsX;
+        int32_t   m_NumCoefsX;
         ptrdiff_t m_NumCoefsY;
         ptrdiff_t m_NumCoordsX;
         ptrdiff_t m_NumUnrolledCoordsX;
@@ -154,7 +154,7 @@ namespace iqo {
         size_t dstW, size_t dstH,
         size_t pxScale
     ) {
-        m_SrcW = srcW;
+        m_SrcW = int32_t(srcW);
         m_SrcH = srcH;
         m_DstW = dstW;
         m_DstH = dstH;
@@ -166,7 +166,7 @@ namespace iqo {
         size_t rDstW = m_DstW / gcdW;
         size_t rSrcH = m_SrcH / gcdH;
         size_t rDstH = m_DstH / gcdH;
-        m_NumCoefsX = calcNumCoefsForLanczos(degree, rSrcW, rDstW, pxScale);
+        m_NumCoefsX = int32_t(calcNumCoefsForLanczos(degree, rSrcW, rDstW, pxScale));
         m_NumCoefsY = calcNumCoefsForLanczos(degree, rSrcH, rDstH, pxScale);
         m_NumCoordsX = rDstW;
         m_NumUnrolledCoordsX = std::min(alignCeil(m_DstW, kVecStepX), lcm(m_NumCoordsX, kVecStepX));
@@ -182,7 +182,7 @@ namespace iqo {
         std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumCoordsX; ++dstX ) {
             float * table = &tablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, table);
+            float sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
                 table[i] /= sumCoefs;
             }
@@ -220,7 +220,7 @@ namespace iqo {
 
         for ( ptrdiff_t dstY = 0; dstY < m_NumCoordsY; ++dstY ) {
             float * table = &m_TablesY[dstY * m_NumCoefsY];
-            double sumCoefs = setLanczosTable(degree, rSrcH, rDstH, dstY, pxScale, m_NumCoefsY, table);
+            float sumCoefs = setLanczosTable(degree, rSrcH, rDstH, dstY, pxScale, m_NumCoefsY, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
                 table[i] /= sumCoefs;
             }
@@ -235,8 +235,8 @@ namespace iqo {
         m_IndicesX.reserve(alignedDstW);
         m_IndicesX.resize(alignedDstW);
         for ( ptrdiff_t dstX = 0; dstX < alignedDstW; ++dstX ) {
-            //       srcOX = floor(dstX / scale)
-            ptrdiff_t srcOX = dstX * m_SrcW / m_DstW + 1;
+            //      srcOX = floor(dstX / scale)
+            int32_t srcOX = int32_t(dstX * rSrcW / rDstW + 1);
             m_IndicesX[dstX] = srcOX;
         }
     }
@@ -457,11 +457,11 @@ namespace iqo {
         const float * src, uint8_t * __restrict dst,
         ptrdiff_t begin, ptrdiff_t end
     ) {
-        ptrdiff_t numCoefsOn2 = m_NumCoefsX / 2;
+        int32_t numCoefsOn2 = m_NumCoefsX / 2;
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
         ptrdiff_t tableSize = m_TablesXWidth * m_NumUnrolledCoordsX;
-        ptrdiff_t numCoefsX = m_NumCoefsX;
+        int32_t numCoefsX = m_NumCoefsX;
 
         __m256i s32x8k_1  = _mm256_set1_epi32(-1);
         __m256i s32x8SrcW = _mm256_set1_epi32(m_SrcW);
@@ -477,7 +477,7 @@ namespace iqo {
             __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
             __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
 
-            for ( ptrdiff_t i = 0; i < numCoefsX; ++i ) {
+            for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 __m256i s32x8Offset = _mm256_set1_epi32(i - numCoefsOn2);
 
                 //ptrdiff_t srcX = indices[dstX + j] + offset;
@@ -526,11 +526,11 @@ namespace iqo {
         const float * src, uint8_t * __restrict dst,
         ptrdiff_t begin, ptrdiff_t end
     ) {
-        ptrdiff_t numCoefsOn2 = m_NumCoefsX / 2;
+        int32_t numCoefsOn2 = m_NumCoefsX / 2;
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
         ptrdiff_t tableSize = m_TablesXWidth * m_NumUnrolledCoordsX;
-        ptrdiff_t numCoefsX = m_NumCoefsX;
+        int32_t numCoefsX = m_NumCoefsX;
 
         ptrdiff_t iCoef = begin / kVecStepX % m_NumUnrolledCoordsX * m_TablesXWidth;
         for ( ptrdiff_t dstX = begin; dstX < end; dstX += kVecStepX ) {
@@ -541,7 +541,7 @@ namespace iqo {
             __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
             __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
 
-            for ( ptrdiff_t i = 0; i < numCoefsX; ++i ) {
+            for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 __m256i s32x8Offset   = _mm256_set1_epi32(i - numCoefsOn2);
 
                 //ptrdiff_t srcX = indices[dstX + j] + offset;

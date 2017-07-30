@@ -163,7 +163,7 @@ namespace iqo {
         std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumCoordsX; ++dstX ) {
             float * table = &tablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, table);
+            float sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
                 table[i] /= sumCoefs;
             }
@@ -201,7 +201,7 @@ namespace iqo {
 
         for ( ptrdiff_t dstY = 0; dstY < m_NumCoordsY; ++dstY ) {
             float * table = &m_TablesY[dstY * m_NumCoefsY];
-            double sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, table);
+            float sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, table);
             for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
                 table[i] /= sumCoefs;
             }
@@ -216,8 +216,8 @@ namespace iqo {
         m_IndicesX.reserve(alignedDstW);
         m_IndicesX.resize(alignedDstW);
         for ( ptrdiff_t dstX = 0; dstX < alignedDstW; ++dstX ) {
-            //       srcOX = floor(dstX / scale)
-            ptrdiff_t srcOX = dstX * m_SrcW / m_DstW;
+            //      srcOX = floor(dstX / scale)
+            int32_t srcOX = int32_t(dstX * rSrcW / rDstW);
             m_IndicesX[dstX] = srcOX;
         }
     }

@@ -113,7 +113,7 @@ namespace iqo {
         size_t dstLen,
         ptrdiff_t dstOffset,
         size_t pxScale,
-        int numCoefs,
+        ptrdiff_t numCoefs,
         float * __restrict fTable)
     {
         //   o: center of a pixel (on a coordinate)
@@ -164,7 +164,7 @@ namespace iqo {
             // = std::fmod(((dstLen - (dstOffset * srcLen % dstLen))/srcLen) * pxScale, 1.0)
             // = std::fmod( (dstLen - (dstOffset * srcLen % dstLen))         * pxScale, srcLen) / srcLen
             // = ((dstLen - dstOffset*srcLen%dstLen) * pxScale % srcLen) / srcLen
-            int degFactor = std::max<int>(1, pxScale / degree);
+            int degFactor = std::max<int>(1, int(pxScale) / degree);
             beginX =
                 -degree*degFactor - 0.5*pxScale + 0.5*dstLen*pxScale/srcLen
                 + ((dstLen - dstOffset * srcLen % dstLen) * pxScale % srcLen) / double(srcLen);
@@ -323,13 +323,13 @@ namespace iqo {
         std::vector<float> tablesX(m_NumCoefsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
             int16_t * table = &m_TablesX[dstX * m_NumCoefsX];
-            double sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, &tablesX[0]);
+            float sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, &tablesX[0]);
             adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, kBias15, &table[0]);
         }
         std::vector<float> tablesY(m_NumCoefsY);
         for ( ptrdiff_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
             int16_t * table = &m_TablesY[dstY * m_NumCoefsY];
-            double sumCoefs = setLanczosTable(degree, rSrcH, rDstH, dstY, pxScale, m_NumCoefsY, &tablesY[0]);
+            float sumCoefs = setLanczosTable(degree, rSrcH, rDstH, dstY, pxScale, m_NumCoefsY, &tablesY[0]);
             adjustCoefs(&tablesY[0], &tablesY[m_NumCoefsY], sumCoefs, kBias, &table[0]);
         }
 
@@ -354,7 +354,7 @@ namespace iqo {
         int dstSum = 0;
 
         for ( size_t i = 0; i < numCoefs; ++i ) {
-            dst[i] = round(srcBegin[i] * bias / srcSum);
+            dst[i] = int16_t(round(srcBegin[i] * bias / srcSum));
             dstSum += dst[i];
         }
         while ( dstSum < k1_0 ) {
@@ -572,7 +572,7 @@ namespace iqo {
                 }
             }
 
-            dst[dstX] = clamp<int16_t>(0, 255, roundedDiv(nume, deno*kBias, kBias15Bit+kBiasBit));
+            dst[dstX] = uint8_t(clamp<int16_t>(0, 255, roundedDiv(nume, deno*kBias, kBias15Bit+kBiasBit)));
         }
     }
 
@@ -610,7 +610,7 @@ namespace iqo {
                 sum += src[srcX] * coefs[i];
             }
 
-            dst[dstX] = clamp<int16_t>(0, 255, convertToInt(sum, kBias15Bit+kBiasBit));
+            dst[dstX] = uint8_t(clamp<int16_t>(0, 255, convertToInt(sum, kBias15Bit+kBiasBit)));
         }
     }
 
