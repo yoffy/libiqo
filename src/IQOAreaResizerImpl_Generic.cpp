@@ -130,21 +130,21 @@ namespace iqo {
             float * srcBegin, float * srcEnd,
             float srcSum,
             int bias,
-            int16_t * dst
+            uint16_t * dst
         );
 
         void resizeYmain(
             ptrdiff_t srcSt, const uint8_t * src,
-            ptrdiff_t dstW, int16_t * dst,
+            ptrdiff_t dstW, uint16_t * dst,
             ptrdiff_t srcOY,
-            const int16_t * coefs
+            const uint16_t * coefs
         );
-        void resizeX(const int16_t * src, uint8_t * dst);
-        void resizeXmain(const int16_t * src, uint8_t * dst);
+        void resizeX(const uint16_t * src, uint8_t * dst);
+        void resizeXmain(const uint16_t * src, uint8_t * dst);
 
         enum {
             // for fixed point
-            kBiasBit = 6,
+            kBiasBit = 8,
             kBias    = 1 << kBiasBit,
 
             kBias15Bit = 15,
@@ -159,11 +159,11 @@ namespace iqo {
         ptrdiff_t m_NumCoefsY;
         ptrdiff_t m_NumTablesX;
         ptrdiff_t m_NumTablesY;
-        std::vector<int16_t> m_TablesX; //!< Area table * m_NumTablesX
-        std::vector<int16_t> m_TablesY; //!< Area table * m_NumTablesY
-        std::vector<int16_t> m_Work;    //!< working memory
-        std::vector<int16_t> m_Nume;
-        std::vector<int16_t> m_Deno;
+        std::vector<uint16_t> m_TablesX;    //!< Area table * m_NumTablesX
+        std::vector<uint16_t> m_TablesY;    //!< Area table * m_NumTablesY
+        std::vector<uint16_t> m_Work;       //!< working memory
+        std::vector<uint16_t> m_Nume;
+        std::vector<uint16_t> m_Deno;
     };
 
     template<>
@@ -206,13 +206,13 @@ namespace iqo {
 
         std::vector<float> tablesX(m_NumCoefsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
-            int16_t * table = &m_TablesX[dstX * m_NumCoefsX];
+            uint16_t * table = &m_TablesX[dstX * m_NumCoefsX];
             double sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, &tablesX[0]);
             adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, kBias15, &table[0]);
         }
         std::vector<float> tablesY(m_NumCoefsY);
         for ( ptrdiff_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
-            int16_t * table = &m_TablesY[dstY * m_NumCoefsY];
+            uint16_t * table = &m_TablesY[dstY * m_NumCoefsY];
             double sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, &tablesY[0]);
             adjustCoefs(&tablesY[0], &tablesY[m_NumCoefsY], sumCoefs, kBias, &table[0]);
         }
@@ -231,7 +231,7 @@ namespace iqo {
         float * __restrict srcBegin, float * __restrict srcEnd,
         float srcSum,
         int bias,
-        int16_t * __restrict dst)
+        uint16_t * __restrict dst)
     {
         const int k1_0 = bias;
         size_t numCoefs = srcEnd - srcBegin;
@@ -259,8 +259,7 @@ namespace iqo {
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
-        // resize
-        int16_t * work = &m_Work[0];
+        uint16_t * work = &m_Work[0];
 
         if ( m_SrcH == m_DstH ) {
             // resize only X axis
@@ -275,7 +274,7 @@ namespace iqo {
         }
 
         ptrdiff_t numCoefs = m_NumCoefsY;
-        const int16_t * tablesY = &m_TablesY[0];
+        const uint16_t * tablesY = &m_TablesY[0];
         ptrdiff_t tableSize = m_NumTablesY * m_NumCoefsY;
         ptrdiff_t iTable = 0;
         LinearIterator iSrcOY(m_DstH, m_SrcH);
@@ -285,8 +284,8 @@ namespace iqo {
         for ( ptrdiff_t dstY = 0; dstY < dstH; ++dstY ) {
             //        srcOY = floor(dstY / scale);
             ptrdiff_t srcOY = *iSrcOY++;
-            //              coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
-            const int16_t * coefs = &tablesY[iTable];
+            //               coefs = &tablesY[dstY % m_NumTablesY * m_NumCoefsY];
+            const uint16_t * coefs = &tablesY[iTable];
             iTable += numCoefs;
             if ( iTable == tableSize ) {
                 iTable = 0;
@@ -309,16 +308,16 @@ namespace iqo {
     //! @param coefs  The coefficients (multiplied by kBias)
     void AreaResizerImpl<ArchGeneric>::resizeYmain(
         ptrdiff_t srcSt, const uint8_t * src,
-        ptrdiff_t dstW, int16_t * __restrict dst,
+        ptrdiff_t dstW, uint16_t * __restrict dst,
         ptrdiff_t srcOY,
-        const int16_t * coefs)
+        const uint16_t * coefs)
     {
         ptrdiff_t numCoefs = m_NumCoefsY;
 
         std::memset(dst, 0, dstW * sizeof(*dst));
 
         for ( ptrdiff_t i = 0; i < numCoefs; ++i ) {
-            int16_t coef = coefs[i];
+            uint16_t coef = coefs[i];
             for ( ptrdiff_t dstX = 0; dstX < dstW; ++dstX ) {
                 ptrdiff_t srcY = srcOY + i;
                 dst[dstX] += src[dstX + srcSt * srcY] * coef;
@@ -326,7 +325,7 @@ namespace iqo {
         }
     }
 
-    void AreaResizerImpl<ArchGeneric>::resizeX(const int16_t * src, uint8_t * __restrict dst)
+    void AreaResizerImpl<ArchGeneric>::resizeX(const uint16_t * src, uint8_t * __restrict dst)
     {
         if ( m_SrcW == m_DstW ) {
             // resize only Y axis
@@ -344,10 +343,10 @@ namespace iqo {
     //!
     //! @param src    A row of source (multiplied by kBias)
     //! @param dst    A row of destination
-    void AreaResizerImpl<ArchGeneric>::resizeXmain(const int16_t * src, uint8_t * __restrict dst)
+    void AreaResizerImpl<ArchGeneric>::resizeXmain(const uint16_t * src, uint8_t * __restrict dst)
     {
         ptrdiff_t numCoefs = m_NumCoefsX;
-        const int16_t * tablesX = &m_TablesX[0];
+        const uint16_t * tablesX = &m_TablesX[0];
         ptrdiff_t tableSize = m_NumTablesX * m_NumCoefsX;
         ptrdiff_t iTable = 0;
         LinearIterator iSrcOX(m_DstW, m_SrcW);
@@ -356,8 +355,8 @@ namespace iqo {
         for ( ptrdiff_t dstX = 0; dstX < dstW; ++dstX ) {
             //        srcOX = floor(dstX / scale);
             ptrdiff_t srcOX = *iSrcOX++;
-            //              coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
-            const int16_t * coefs = &tablesX[iTable];
+            //               coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
+            const uint16_t * coefs = &tablesX[iTable];
             int sum = 0;
 
             // iTable = (iTable + m_NumCoefsX) % tableSize;
@@ -370,7 +369,7 @@ namespace iqo {
                 sum += src[srcX] * coefs[i];
             }
 
-            dst[dstX] = clamp<int16_t>(0, 255, convertToInt(sum, kBias15Bit+kBiasBit));
+            dst[dstX] = clamp<uint16_t>(0, 255, convertToInt(sum, kBias15Bit+kBiasBit));
         }
     }
 
