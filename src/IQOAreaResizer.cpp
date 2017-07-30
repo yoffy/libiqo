@@ -10,7 +10,11 @@ namespace iqo {
         size_t dstH
     ) {
 #if defined(IQO_CPU_X86)
-        if ( AreaResizerImpl_hasFeature<ArchSSE4_1>() ) {
+        if ( AreaResizerImpl_hasFeature<ArchAVX512>() ) {
+            m_Impl = AreaResizerImpl_new<ArchAVX512>();
+        } else if ( AreaResizerImpl_hasFeature<ArchAVX2FMA>() ) {
+            m_Impl = AreaResizerImpl_new<ArchAVX2FMA>();
+        } else if ( AreaResizerImpl_hasFeature<ArchSSE4_1>() ) {
             m_Impl = AreaResizerImpl_new<ArchSSE4_1>();
         } else
 #endif
