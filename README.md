@@ -6,6 +6,10 @@ Image processing library for C++.
 
 ## Features
 
+* Intel SSE4.1, AVX2, AVX512, and ARM NEON implementations.
+* Area image resize
+  * only down sampling
+  * (implemented only one-channel U8 image)
 * Lanczos image resize
   * up sampling, and down sampling
   * (implemented only one-channel U8 image)
