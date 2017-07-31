@@ -70,7 +70,7 @@ namespace {
         __m128  f32x1V     = _mm_set_ss(v);
         __m128  f32x1Round = _mm_round_ss(f32x1V, f32x1V, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
         int32_t s32x1Round = _mm_cvtss_si32(f32x1Round);
-        return clamp(0, 255, s32x1Round);
+        return uint8_t(clamp(0, 255, s32x1Round));
     }
 
     __m128i cvt_roundps_epu8(__m128 lo, __m128 hi)
@@ -132,17 +132,17 @@ namespace iqo {
             kVecStepX  =  8, //!< float32x8
             kVecStepY  = 16, //!< float32x8
         };
-        int32_t   m_SrcW;
-        ptrdiff_t m_SrcH;
-        ptrdiff_t m_DstW;
-        ptrdiff_t m_DstH;
-        int32_t   m_NumCoefsX;
-        ptrdiff_t m_NumCoefsY;
-        ptrdiff_t m_NumCoordsX;
-        ptrdiff_t m_NumUnrolledCoordsX;
-        ptrdiff_t m_TablesXWidth;
-        ptrdiff_t m_NumCoordsY;
-        std::vector<float > m_TablesX_; //!< m_TablesXWidth * m_NumCoordsX (unrolled)
+        int32_t m_SrcW;
+        int32_t m_SrcH;
+        int32_t m_DstW;
+        int32_t m_DstH;
+        int32_t m_NumCoefsX;
+        int32_t m_NumCoefsY;
+        int32_t m_NumCoordsX;
+        int32_t m_NumUnrolledCoordsX;
+        int32_t m_TablesXWidth;
+        int32_t m_NumCoordsY;
+        std::vector<float> m_TablesX_;  //!< m_TablesXWidth * m_NumCoordsX (unrolled)
         float * m_TablesX;              //!< aligned
         std::vector<float> m_TablesY;   //!< Lanczos table * m_NumCoordsY
         std::vector<float> m_Work;
@@ -171,36 +171,40 @@ namespace iqo {
         size_t pxScale
     ) {
         m_SrcW = int32_t(srcW);
-        m_SrcH = srcH;
-        m_DstW = dstW;
-        m_DstH = dstH;
+        m_SrcH = int32_t(srcH);
+        m_DstW = int32_t(dstW);
+        m_DstH = int32_t(dstH);
 
         // setup coefficients
-        size_t gcdW = gcd(m_SrcW, m_DstW);
-        size_t gcdH = gcd(m_SrcH, m_DstH);
-        size_t rSrcW = m_SrcW / gcdW;
-        size_t rDstW = m_DstW / gcdW;
-        size_t rSrcH = m_SrcH / gcdH;
-        size_t rDstH = m_DstH / gcdH;
+        int32_t gcdW = int32_t(gcd(m_SrcW, m_DstW));
+        int32_t gcdH = int32_t(gcd(m_SrcH, m_DstH));
+        int32_t rSrcW = m_SrcW / gcdW;
+        int32_t rDstW = m_DstW / gcdW;
+        int32_t rSrcH = m_SrcH / gcdH;
+        int32_t rDstH = m_DstH / gcdH;
+        ptrdiff_t alignedW  = alignCeil(m_DstW, kVecStepX);
+        ptrdiff_t unrolledW = lcm(rDstW, kVecStepX);
         m_NumCoefsX = int32_t(calcNumCoefsForLanczos(degree, rSrcW, rDstW, pxScale));
-        m_NumCoefsY = calcNumCoefsForLanczos(degree, rSrcH, rDstH, pxScale);
+        m_NumCoefsY = int32_t(calcNumCoefsForLanczos(degree, rSrcH, rDstH, pxScale));
         m_NumCoordsX = rDstW;
-        m_NumUnrolledCoordsX = std::min(alignCeil(m_DstW, kVecStepX), lcm(m_NumCoordsX, kVecStepX));
+        m_NumUnrolledCoordsX = int32_t(std::min(alignedW, unrolledW));
         m_NumUnrolledCoordsX /= kVecStepX;
         m_TablesXWidth = kVecStepX * m_NumCoefsX;
         m_NumCoordsY = rDstH;
-        m_TablesX_.reserve(m_TablesXWidth * m_NumUnrolledCoordsX + kVecStepX);
-        m_TablesX_.resize(m_TablesXWidth * m_NumUnrolledCoordsX + kVecStepX);
+        size_t alignedTblXSize = size_t(m_TablesXWidth) * m_NumUnrolledCoordsX + kVecStepX;
+        m_TablesX_.reserve(alignedTblXSize);
+        m_TablesX_.resize(alignedTblXSize);
         m_TablesX = (float *)alignCeil(intptr_t(&m_TablesX_[0]), sizeof(*m_TablesX) * kVecStepX);
-        m_TablesY.reserve(m_NumCoefsY * m_NumCoordsY);
-        m_TablesY.resize(m_NumCoefsY * m_NumCoordsY);
+        size_t tblYSize = m_NumCoefsY * m_NumCoordsY;
+        m_TablesY.reserve(tblYSize);
+        m_TablesY.resize(tblYSize);
 
         // X coefs
         std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
         for ( ptrdiff_t dstX = 0; dstX < m_NumCoordsX; ++dstX ) {
             float * table = &tablesX[dstX * m_NumCoefsX];
             float sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, table);
-            for ( int i = 0; i < m_NumCoefsX; i++ ) {
+            for ( int32_t i = 0; i < m_NumCoefsX; i++ ) {
                 table[i] /= sumCoefs;
             }
         }
@@ -240,7 +244,7 @@ namespace iqo {
         for ( ptrdiff_t dstY = 0; dstY < m_NumCoordsY; ++dstY ) {
             float * table = &m_TablesY[dstY * m_NumCoefsY];
             float sumCoefs = setLanczosTable(degree, rSrcH, rDstH, dstY, pxScale, m_NumCoefsY, table);
-            for ( ptrdiff_t i = 0; i < m_NumCoefsY; ++i ) {
+            for ( int32_t i = 0; i < m_NumCoefsY; ++i ) {
                 table[i] /= sumCoefs;
             }
         }

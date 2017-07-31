@@ -111,18 +111,11 @@ namespace iqo {
         );
 
     private:
-        //! round(a / b)
-        static int roundedDiv(int a, int b, int biasbit)
-        {
-            const int k0_5 = (1 << biasbit) / 2;
-            return (a + k0_5) / b;
-        }
-
         //! fixed_point_to_int(round(a))
-        static int convertToInt(int a, int biasbit)
+        static int16_t convertToInt(int a, int biasbit)
         {
             const int k0_5 = (1 << biasbit) / 2;
-            return (a + k0_5) >> biasbit;
+            return int16_t((a + k0_5) >> biasbit);
         }
 
         //! dst[i] = src[i] * kBias / srcSum (src will be broken)
@@ -331,7 +324,7 @@ namespace iqo {
             // resize only Y axis
             ptrdiff_t dstW = m_DstW;
             for ( ptrdiff_t dstX = 0; dstX < dstW; dstX++ ) {
-                dst[dstX] = convertToInt(src[dstX], kBiasBit);
+                dst[dstX] = uint8_t(clamp<int16_t>(0, 255, convertToInt(src[dstX], kBiasBit)));
             }
             return;
         }
