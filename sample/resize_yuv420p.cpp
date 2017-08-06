@@ -8,8 +8,7 @@
 #include <string>
 #include <vector>
 
-#include <libiqo/AreaResizer.hpp>
-#include <libiqo/LanczosResizer.hpp>
+#include <libiqo/iqo.hpp>
 
 namespace {
 
