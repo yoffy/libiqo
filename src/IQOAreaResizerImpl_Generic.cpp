@@ -122,7 +122,7 @@ namespace iqo {
         void adjustCoefs(
             float * srcBegin, float * srcEnd,
             float srcSum,
-            int bias,
+            uint16_t bias,
             uint16_t * dst
         );
 
@@ -223,7 +223,7 @@ namespace iqo {
     void AreaResizerImpl<ArchGeneric>::adjustCoefs(
         float * __restrict srcBegin, float * __restrict srcEnd,
         float srcSum,
-        int bias,
+        uint16_t bias,
         uint16_t * __restrict dst)
     {
         const int k1_0 = bias;
@@ -313,7 +313,7 @@ namespace iqo {
             uint16_t coef = coefs[i];
             for ( ptrdiff_t dstX = 0; dstX < dstW; ++dstX ) {
                 ptrdiff_t srcY = srcOY + i;
-                dst[dstX] += src[dstX + srcSt * srcY] * coef;
+                dst[dstX] = uint16_t(dst[dstX] + src[dstX + srcSt * srcY] * coef);
             }
         }
     }

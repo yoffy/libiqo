@@ -196,9 +196,9 @@ namespace {
         return b;
     }
 
-    static inline int64_t lcm(int64_t a, int64_t b)
+    static inline int64_t lcm(ptrdiff_t a, ptrdiff_t b)
     {
-        return a * b / gcd(a, b);
+        return int64_t(a) * b / gcd(a, b);
     }
 
 }
