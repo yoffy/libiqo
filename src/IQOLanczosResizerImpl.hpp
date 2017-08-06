@@ -185,12 +185,14 @@ namespace {
         return std::max(lo, std::min(hi, v));
     }
 
-    static inline intptr_t alignFloor(intptr_t v, intptr_t alignment)
+    template<typename T>
+    static inline T alignFloor(T v, T alignment)
     {
         return v / alignment * alignment;
     }
 
-    static inline intptr_t alignCeil(intptr_t v, intptr_t alignment)
+    template<typename T>
+    static inline T alignCeil(T v, T alignment)
     {
         return (v + (alignment - 1)) / alignment * alignment;
     }
@@ -208,7 +210,7 @@ namespace {
         return b;
     }
 
-    static inline ptrdiff_t lcm(ptrdiff_t a, ptrdiff_t b)
+    static inline int64_t lcm(int64_t a, int64_t b)
     {
         return a * b / gcd(a, b);
     }
