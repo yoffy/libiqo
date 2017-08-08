@@ -229,7 +229,7 @@ namespace iqo {
         void adjustCoefs(
             float * srcBegin, float * srcEnd,
             float srcSum,
-            int16_t bias,
+            int bias,
             int16_t * dst
         );
 
@@ -261,8 +261,8 @@ namespace iqo {
             kBiasBit = 6,
             kBias    = 1 << kBiasBit,
 
-            kBias15Bit = 15,
-            kBias15  = 1 << kBias15Bit,
+            kBias14Bit = 14,
+            kBias14  = 1 << kBias14Bit,
         };
 
         ptrdiff_t m_SrcW;
@@ -324,7 +324,7 @@ namespace iqo {
         for ( ptrdiff_t dstX = 0; dstX < m_NumTablesX; ++dstX ) {
             int16_t * table = &m_TablesX[dstX * m_NumCoefsX];
             float sumCoefs = setLanczosTable(degree, rSrcW, rDstW, dstX, pxScale, m_NumCoefsX, &tablesX[0]);
-            adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, kBias15, &table[0]);
+            adjustCoefs(&tablesX[0], &tablesX[m_NumCoefsX], sumCoefs, kBias14, &table[0]);
         }
         std::vector<float> tablesY(m_NumCoefsY);
         for ( ptrdiff_t dstY = 0; dstY < m_NumTablesY; ++dstY ) {
@@ -346,7 +346,7 @@ namespace iqo {
     void LanczosResizerImpl<ArchGeneric>::adjustCoefs(
         float * __restrict srcBegin, float * __restrict srcEnd,
         float srcSum,
-        int16_t bias,
+        int bias,
         int16_t * __restrict dst)
     {
         const int k1_0 = bias;
@@ -572,7 +572,7 @@ namespace iqo {
                 }
             }
 
-            dst[dstX] = uint8_t(clamp<int16_t>(0, 255, roundedDiv(nume, deno*kBias, kBias15Bit+kBiasBit)));
+            dst[dstX] = uint8_t(clamp<int16_t>(0, 255, roundedDiv(nume, deno*kBias, kBias14Bit+kBiasBit)));
         }
     }
 
@@ -610,7 +610,7 @@ namespace iqo {
                 sum += src[srcX] * coefs[i];
             }
 
-            dst[dstX] = uint8_t(clamp<int16_t>(0, 255, convertToInt(sum, kBias15Bit+kBiasBit)));
+            dst[dstX] = uint8_t(clamp<int16_t>(0, 255, convertToInt(sum, kBias14Bit+kBiasBit)));
         }
     }
 
