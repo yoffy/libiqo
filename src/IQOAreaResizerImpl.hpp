@@ -1,6 +1,6 @@
+#pragma once
+
 #include <stdint.h>
-#include <cmath>
-#include <algorithm>
 
 #include "libiqo/AreaResizer.hpp"
 #include "libiqo/Types.hpp"
@@ -81,62 +81,6 @@ namespace iqo {
     template<> IAreaResizerImpl * AreaResizerImpl_new<ArchNEON>();
 
 
-    //! Linear integer interpolation
-    class LinearIterator
-    {
-    public:
-        LinearIterator(ptrdiff_t dx, ptrdiff_t dy)
-        {
-            m_DX = dx;
-            m_DY = dy;
-            m_X = 0;
-            m_Y = 0;
-        }
-
-        //! set x
-        void setX(ptrdiff_t x)
-        {
-            m_X = (m_DY * x) % m_DX;
-            m_Y = (m_DY * x) / m_DX;
-        }
-
-        //! get y
-        ptrdiff_t operator*() const
-        {
-            return m_Y;
-        }
-
-        //! ++x
-        LinearIterator & operator++()
-        {
-            advance();
-            return *this;
-        }
-
-        //! x++
-        LinearIterator operator++(int)
-        {
-            LinearIterator tmp(*this);
-            advance();
-            return tmp;
-        }
-
-    private:
-        void advance()
-        {
-            m_X += m_DY;
-            while ( m_X >= m_DX ) {
-                ++m_Y;
-                m_X -= m_DX;
-            }
-        }
-
-        ptrdiff_t m_DX;
-        ptrdiff_t m_DY;
-        ptrdiff_t m_X;
-        ptrdiff_t m_Y;
-    };
-
     //! Calculate number of coefficients for area resampling
     size_t calcNumCoefsForArea(size_t srcLen, size_t dstLen);
 
@@ -154,51 +98,5 @@ namespace iqo {
         ptrdiff_t numCoefs,
         float * fTable
     );
-
-}
-
-namespace {
-
-    template<typename T>
-    T round(T x)
-    {
-        return std::floor(x + T(0.5));
-    }
-
-    template<typename T>
-    T clamp(T lo, T hi, T v)
-    {
-        return std::max(lo, std::min(hi, v));
-    }
-
-    template<typename T>
-    static inline T alignFloor(T v, T alignment)
-    {
-        return v / alignment * alignment;
-    }
-
-    template<typename T>
-    static inline T alignCeil(T v, T alignment)
-    {
-        return (v + (alignment - 1)) / alignment * alignment;
-    }
-
-    static inline ptrdiff_t gcd(ptrdiff_t a, ptrdiff_t b)
-    {
-        ptrdiff_t r = a % b;
-
-        while ( r ) {
-            a = b;
-            b = r;
-            r = a % b;
-        }
-
-        return b;
-    }
-
-    static inline int64_t lcm(ptrdiff_t a, ptrdiff_t b)
-    {
-        return int64_t(a) * b / gcd(a, b);
-    }
 
 }

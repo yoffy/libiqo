@@ -2,6 +2,7 @@
 #include <vector>
 
 #include "IQOLanczosResizerImpl.hpp"
+#include "math.hpp"
 
 
 namespace iqo {

@@ -11,6 +11,7 @@
     #include <omp.h>
 #endif
 
+#include "math.hpp"
 #include "IQOHWCap.hpp"
 
 
@@ -39,7 +40,7 @@ namespace {
         __m128  f32x1V     = _mm_set_ss(v);
         __m128  f32x1Round = _mm_round_ss(f32x1V, f32x1V, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
         int32_t s32x1Round = _mm_cvtss_si32(f32x1Round);
-        return uint8_t(clamp(0, 255, s32x1Round));
+        return uint8_t(iqo::clamp(0, 255, s32x1Round));
     }
 
     //! (uint8_t)min(255, max(0, round(v)))

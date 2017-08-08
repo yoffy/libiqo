@@ -11,6 +11,7 @@
     #include <omp.h>
 #endif
 
+#include "math.hpp"
 #include "IQOHWCap.hpp"
 
 
@@ -83,7 +84,7 @@ namespace {
 
     uint8_t cvt_roundf32_u8(float v)
     {
-        return uint8_t(clamp(0.0f, 255.0f, round_f32(v)));
+        return uint8_t(iqo::clamp(0.0f, 255.0f, round_f32(v)));
     }
 
     uint8x8_t cvt_roundf32_u8(float32x4_t lo, float32x4_t hi)
