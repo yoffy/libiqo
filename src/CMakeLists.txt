@@ -1,4 +1,6 @@
 add_library(iqo IQOHWCap.cpp
+                IQOLinearResizer.cpp
+                IQOLinearResizerImpl_Generic.cpp
                 IQOAreaResizer.cpp
                 IQOAreaResizerImpl_Generic.cpp
                 IQOAreaResizerImpl_SSE4_1.cpp

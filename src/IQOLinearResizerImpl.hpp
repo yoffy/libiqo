@@ -1,0 +1,102 @@
+#pragma once
+
+#include <stdint.h>
+
+#include "libiqo/LinearResizer.hpp"
+#include "libiqo/Types.hpp"
+
+namespace iqo {
+
+    class ILinearResizerImpl
+    {
+    public:
+        //! Destructor
+        virtual ~ILinearResizerImpl() {}
+
+        //! Construct impl
+        virtual void init(
+            size_t srcW, size_t srcH,
+            size_t dstW, size_t dstH
+        ) = 0;
+
+        //! Run image resizing
+        virtual void resize(
+            size_t srcSt, const unsigned char * src,
+            size_t dstSt, unsigned char * dst
+        ) = 0;
+    };
+
+    //! MUST NOT define inline function to inherited function.
+    //! Because class method inline function will be weak symbol.
+    template<class ARCH>
+    class LinearResizerImpl : public ILinearResizerImpl
+    {
+    public:
+        virtual ~LinearResizerImpl() {}
+
+        virtual void init(
+            size_t srcW, size_t srcH,
+            size_t dstW, size_t dstH
+        ) {
+            (void)srcW;
+            (void)srcH;
+            (void)dstW;
+            (void)dstH;
+        }
+
+        virtual void resize(
+            size_t srcSt, const unsigned char * src,
+            size_t dstSt, unsigned char * dst
+        ) {
+            (void)srcSt;
+            (void)src;
+            (void)dstSt;
+            (void)dst;
+        }
+    };
+
+    //! Returns feature capability
+    template<class ARCH>
+    bool LinearResizerImpl_hasFeature()
+    {
+        return false;
+    }
+
+    //! new LinearResizerImpl<ARCH>
+    template<class ARCH>
+    ILinearResizerImpl * LinearResizerImpl_new()
+    {
+        return NULL;
+    }
+
+    template<> bool LinearResizerImpl_hasFeature<ArchGeneric>();
+    //template<> bool LinearResizerImpl_hasFeature<ArchSSE4_1>();
+    //template<> bool LinearResizerImpl_hasFeature<ArchAVX2FMA>();
+    //template<> bool LinearResizerImpl_hasFeature<ArchAVX512>();
+    //template<> bool LinearResizerImpl_hasFeature<ArchNEON>();
+    template<> ILinearResizerImpl * LinearResizerImpl_new<ArchGeneric>();
+    //template<> ILinearResizerImpl * LinearResizerImpl_new<ArchSSE4_1>();
+    //template<> ILinearResizerImpl * LinearResizerImpl_new<ArchAVX2FMA>();
+    //template<> ILinearResizerImpl * LinearResizerImpl_new<ArchAVX512>();
+    //template<> ILinearResizerImpl * LinearResizerImpl_new<ArchNEON>();
+
+
+    //! Calculate number of coefficients for area resampling
+    size_t calcNumCoefsForLinear(size_t srcLen, size_t dstLen);
+
+    //! @brief Set Linear table
+    //! @param srcLen     Number of pixels of the source image
+    //! @param dstLen     Number of pixels of the destination image
+    //! @param dstOffset  The coordinate of the destination image
+    //! @param numCoefs   Size of table
+    //! @param fTable     The table (float or double)
+    //! @return Sum of the table
+    float setLinearTable(
+        size_t srcLen,
+        size_t dstLen,
+        ptrdiff_t dstOffset,
+        ptrdiff_t numCoefs,
+        float * fTable
+    );
+
+}

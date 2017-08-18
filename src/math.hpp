@@ -32,9 +32,10 @@ namespace iqo {
             return (v + (alignment - 1)) / alignment * alignment;
         }
 
-        inline ptrdiff_t gcd(ptrdiff_t a, ptrdiff_t b)
+        template<typename T>
+        inline T gcd(T a, T b)
         {
-            ptrdiff_t r = a % b;
+            T r = a % b;
 
             while ( r ) {
                 a = b;
@@ -50,10 +51,25 @@ namespace iqo {
             return int64_t(a) * b / gcd(a, b);
         }
 
+        //! floor(a / b)
+        inline int64_t div_floor(int64_t a, int64_t b)
+        {
+            if ( (a ^ b) < 0 ) {
+                return (a - b + 1) / b;
+            } else {
+                return a / b;
+            }
+        }
+
         //! Linear integer interpolation
+        //!
+        //! Get floor(x * dy/dx) and iterate x.
         class LinearIterator
         {
         public:
+            //! @brief constructor
+            //! @param dx  denominator
+            //! @param dy  numerator
             LinearIterator(ptrdiff_t dx, ptrdiff_t dy)
             {
                 m_DX = dx;
@@ -63,10 +79,33 @@ namespace iqo {
             }
 
             //! set x
+            //!
+            //! y = x * dy/dx
             void setX(ptrdiff_t x)
             {
-                m_X = (m_DY * x) % m_DX;
-                m_Y = (m_DY * x) / m_DX;
+                m_X = ptrdiff_t((int64_t(x) * m_DY) % m_DX);
+                m_Y = ptrdiff_t((int64_t(x) * m_DY) / m_DX);
+            }
+
+            //! set x by rational
+            //!
+            //! y = nume/deno * dy/dx
+            void setX(ptrdiff_t nume, ptrdiff_t deno)
+            {
+                m_Y = ptrdiff_t(div_floor(int64_t(nume)*m_DY, int64_t(deno)*m_DX));
+
+                int64_t newNume = int64_t(nume) * m_DX;
+                //int64_t newDeno = int64_t(deno) * m_DX;
+                int64_t newDY   = int64_t(m_DY) * deno;
+                int64_t newDX   = int64_t(m_DX) * deno;
+                int64_t newGCD  = std::abs(gcd(newNume, gcd(newDY, newDX)));
+                newNume /= newGCD;
+                newDY   /= newGCD;
+                newDX   /= newGCD;
+                m_X  = ptrdiff_t(newNume % newDX);
+                m_X  = (m_X < 0) ? m_X + newDX : m_X;
+                m_DX = ptrdiff_t(newDX);
+                m_DY = ptrdiff_t(newDY);
             }
 
             //! get y
@@ -78,7 +117,7 @@ namespace iqo {
             //! ++x
             LinearIterator & operator++()
             {
-                advance();
+                advance(1);
                 return *this;
             }
 
@@ -86,14 +125,20 @@ namespace iqo {
             LinearIterator operator++(int)
             {
                 LinearIterator tmp(*this);
-                advance();
+                advance(1);
                 return tmp;
             }
 
-        private:
-            void advance()
+            LinearIterator & operator+=(ptrdiff_t a)
             {
-                m_X += m_DY;
+                advance(a);
+                return *this;
+            }
+
+        private:
+            void advance(ptrdiff_t a)
+            {
+                m_X += a * m_DY;
                 while ( m_X >= m_DX ) {
                     ++m_Y;
                     m_X -= m_DX;

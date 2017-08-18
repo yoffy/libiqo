@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
         || dstW == 0 || dstH == 0 )
     {
         std::printf("usage: resize_yuv420 -m method -i input.yuv -iw in_width -ih in_height -o output.yuv -ow out_width -oh out_height\n");
-        std::printf("method: area or lanczos[1-9]\n");
+        std::printf("method: linear, area or lanczos[1-9]\n");
         return EINVAL;
     }
 
@@ -119,7 +119,21 @@ int main(int argc, char *argv[])
     uint8_t * dstU = &dstY[dstSizeY];
     uint8_t * dstV = &dstU[dstSizeU];
 
-    if ( method == "area" ) {
+    if ( method == "linear" ) {
+        // resize Y
+        {
+            iqo::LinearResizer r(srcW, srcH, dstW, dstH);
+
+            r.resize(srcStX, srcY, dstStX, dstY);
+        }
+        // resize U and V
+        {
+            iqo::LinearResizer r(srcStX / 2, srcStY / 2, dstStX / 2, dstStY / 2);
+
+            r.resize(srcStX / 2, srcU, dstStX / 2, dstU);
+            r.resize(srcStX / 2, srcV, dstStX / 2, dstV);
+        }
+    } else if ( method == "area" ) {
         // resize Y
         {
             iqo::AreaResizer r(srcW, srcH, dstW, dstH);
