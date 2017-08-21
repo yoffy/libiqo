@@ -45,3 +45,6 @@ perf.data
 perf.data.old
 *.perf.data
 *.perf.data.old
+
+# Sublime Text
+*.sublime-workspace
