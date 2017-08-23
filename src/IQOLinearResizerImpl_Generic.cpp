@@ -198,13 +198,16 @@ namespace iqo {
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
+        ptrdiff_t  srcW = m_SrcW;
+        ptrdiff_t  srcH = m_SrcH;
+        ptrdiff_t  dstH = m_DstH;
         uint16_t * work = &m_Work[0];
 
         if ( m_SrcH == m_DstH ) {
             // resize only X axis
-            for ( ptrdiff_t y = 0; y < m_SrcH; ++y ) {
-                for ( ptrdiff_t x = 0; x < m_SrcW; ++x ) {
-                    m_Work[m_SrcW * y + x] = uint16_t(src[srcSt * y + x] * kBias);
+            for ( ptrdiff_t y = 0; y < srcH; ++y ) {
+                for ( ptrdiff_t x = 0; x < srcW; ++x ) {
+                    work[x] = uint16_t(src[srcSt * y + x] * kBias);
                 }
                 resizeX(work, &dst[dstSt * y]);
             }
@@ -216,10 +219,7 @@ namespace iqo {
         const uint16_t * tablesY = &m_TablesY[0];
         ptrdiff_t        tableSize = m_NumTablesY * numCoefs;
         ptrdiff_t        iTable = 0;
-        LinearIterator   iSrcOY(m_DstH, m_SrcH);
-        ptrdiff_t        srcW = m_SrcW;
-        ptrdiff_t        srcH = m_SrcH;
-        ptrdiff_t        dstH = m_DstH;
+        LinearIterator   iSrcOY(dstH, srcH);
         double           fMainBegin = std::ceil(0.5 * dstH / srcH - 0.5);
         ptrdiff_t        mainBegin  = clamp<ptrdiff_t>(0, dstH, ptrdiff_t(fMainBegin));
         ptrdiff_t        mainEnd    = clamp<ptrdiff_t>(0, dstH, dstH - mainBegin);

@@ -10,6 +10,10 @@ namespace iqo {
     //! Calculate number of coefficients for area resampling
     size_t calcNumCoefsForArea(size_t srcLen, size_t dstLen)
     {
+        if ( srcLen < dstLen ) {
+            return 1;
+        }
+
         // down-sampling
         //
         // case decimal number of coefs:
@@ -142,7 +146,7 @@ namespace iqo {
             kBias    = 1 << kBiasBit,
 
             kBias15Bit = 15,
-            kBias15  = 1 << kBias15Bit,
+            kBias15    = 1 << kBias15Bit,
         };
 
         ptrdiff_t m_SrcW;
@@ -253,13 +257,16 @@ namespace iqo {
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
+        ptrdiff_t  srcW = m_SrcW;
+        ptrdiff_t  srcH = m_SrcH;
+        ptrdiff_t  dstH = m_DstH;
         uint16_t * work = &m_Work[0];
 
         if ( m_SrcH == m_DstH ) {
             // resize only X axis
-            for ( ptrdiff_t y = 0; y < m_SrcH; ++y ) {
-                for ( ptrdiff_t x = 0; x < m_SrcW; ++x ) {
-                    m_Work[m_SrcW * y + x] = src[srcSt * y + x];
+            for ( ptrdiff_t y = 0; y < srcH; ++y ) {
+                for ( ptrdiff_t x = 0; x < srcW; ++x ) {
+                    work[x] = uint16_t(src[srcSt * y + x] * kBias);
                 }
                 resizeX(work, &dst[dstSt * y]);
             }
@@ -271,8 +278,7 @@ namespace iqo {
         const uint16_t * tablesY = &m_TablesY[0];
         ptrdiff_t tableSize = m_NumTablesY * m_NumCoefsY;
         ptrdiff_t iTable = 0;
-        LinearIterator iSrcOY(m_DstH, m_SrcH);
-        ptrdiff_t dstH = m_DstH;
+        LinearIterator iSrcOY(dstH, srcH);
 
         // main loop
         for ( ptrdiff_t dstY = 0; dstY < dstH; ++dstY ) {

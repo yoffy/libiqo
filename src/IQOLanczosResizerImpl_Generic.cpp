@@ -263,7 +263,7 @@ namespace iqo {
             kBias    = 1 << kBiasBit,
 
             kBias14Bit = 14,
-            kBias14  = 1 << kBias14Bit,
+            kBias14    = 1 << kBias14Bit,
         };
 
         ptrdiff_t m_SrcW;
@@ -376,14 +376,16 @@ namespace iqo {
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
-        // resize
+        ptrdiff_t  srcW = m_SrcW;
+        ptrdiff_t  srcH = m_SrcH;
+        ptrdiff_t  dstH = m_DstH;
         int16_t * work = &m_Work[0];
 
         if ( m_SrcH == m_DstH ) {
             // resize only X axis
-            for ( ptrdiff_t y = 0; y < m_SrcH; ++y ) {
-                for ( ptrdiff_t x = 0; x < m_SrcW; ++x ) {
-                    m_Work[m_SrcW * y + x] = src[srcSt * y + x];
+            for ( ptrdiff_t y = 0; y < srcH; ++y ) {
+                for ( ptrdiff_t x = 0; x < srcW; ++x ) {
+                    work[x] = uint16_t(src[srcSt * y + x] * kBias);
                 }
                 resizeX(work, &dst[dstSt * y]);
             }
@@ -392,13 +394,13 @@ namespace iqo {
         }
 
         ptrdiff_t numCoefsOn2 = m_NumCoefsY / 2;
-        //        mainBegin = std::ceil((numCoefsOn2 - 1) * m_DstH / double(m_SrcH))
-        ptrdiff_t mainBegin = ((numCoefsOn2 - 1) * m_DstH + m_SrcH-1) / m_SrcH;
-        ptrdiff_t mainEnd = std::max<ptrdiff_t>(0, (m_SrcH - numCoefsOn2) * m_DstH / m_SrcH);
+        //        mainBegin = std::ceil((numCoefsOn2 - 1) * dstH / double(srcH))
+        ptrdiff_t mainBegin = ((numCoefsOn2 - 1) * dstH + srcH-1) / srcH;
+        ptrdiff_t mainEnd = std::max<ptrdiff_t>(0, (m_SrcH - numCoefsOn2) * dstH / srcH);
         const int16_t * tablesY = &m_TablesY[0];
         ptrdiff_t tableSize = m_NumTablesY * m_NumCoefsY;
         ptrdiff_t iTable = 0;
-        LinearIterator iSrcOY(m_DstH, m_SrcH);
+        LinearIterator iSrcOY(dstH, srcH);
 
         // border pixels
         for ( ptrdiff_t dstY = 0; dstY < mainBegin; ++dstY ) {
@@ -556,8 +558,8 @@ namespace iqo {
             ptrdiff_t srcOX = *iSrcOX++ + 1;
             //              coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
             const int16_t * coefs = &tablesX[iTable];
-            int nume = 0;
-            int deno = 0;
+            int32_t nume = 0;
+            int32_t deno = 0;
 
             // iTable = (iTable + m_NumCoefsX) % tableSize;
             iTable += m_NumCoefsX;
@@ -567,7 +569,7 @@ namespace iqo {
             for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
                 ptrdiff_t srcX = srcOX - numCoefsOn2 + i;
                 if ( 0 <= srcX && srcX < m_SrcW ) {
-                    int16_t coef = coefs[i];
+                    int32_t coef = coefs[i];
                     nume += src[srcX] * coef;
                     deno += coef;
                 }
@@ -599,7 +601,7 @@ namespace iqo {
             ptrdiff_t srcOX = *iSrcOX++ + 1;
             //              coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
             const int16_t * coefs = &tablesX[iTable];
-            int sum = 0;
+            int32_t sum = 0;
 
             // iTable = (iTable + m_NumCoefsX) % tableSize;
             iTable += m_NumCoefsX;
@@ -608,7 +610,7 @@ namespace iqo {
             }
             for ( ptrdiff_t i = 0; i < m_NumCoefsX; ++i ) {
                 ptrdiff_t srcX = srcOX - numCoefsOn2 + i;
-                sum += src[srcX] * coefs[i];
+                sum += src[srcX] * int32_t(coefs[i]);
             }
 
             dst[dstX] = uint8_t(clamp<int16_t>(0, 255, convertToInt(sum, kBias14Bit+kBiasBit)));
