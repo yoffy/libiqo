@@ -39,7 +39,7 @@ namespace iqo {
 #if defined(IQO_CPU_X86)
         union CPUID
         {
-            unsigned int a, b, c, d;
+            struct { unsigned int a, b, c, d; };
             int info[4];
         };
 
