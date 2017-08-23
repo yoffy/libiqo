@@ -20,18 +20,24 @@ Image processing library for C++.
 
 ## Build
 
-Run `cmake` and `make` in this directory.
+Create building directory, and run `cmake` and `make` in that.
 
 ```
-$ cmake -D CMAKE_BUILD_TYPE=Release .
-$ make
+$ git clone https://github.com/yoffy/libiqo.git
+$ mkdir build
+$ cd build
+build$ cmake ../libiqo
+build$ make -j8
 ```
 
 or
 
 ```
-C:\libiqo> cmake -G "Visual Studio 15 2017 Win64" .
-C:\libiqo> cmake --build . --config Release
+C:\> git clone https://github.com/yoffy/libiqo.git
+C:\> mkdir build
+C:\> cd build
+C:\build> cmake -G "Visual Studio 15 2017 Win64" ..\libiqo
+C:\build> cmake --build . --config Release
 ```
 
 It outputs the library into `lib` directory.
