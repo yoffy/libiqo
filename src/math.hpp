@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <cmath>
+#include <cstdlib>
 #include <algorithm>
 
 
@@ -150,24 +151,6 @@ namespace iqo {
             ptrdiff_t m_X;
             ptrdiff_t m_Y;
         };
-
-        //! Calculate number of coefficients for area resampling
-        size_t calcNumCoefsForLinear(size_t srcLen, size_t dstLen);
-
-        //! @brief Set Linear table
-        //! @param srcLen     Number of pixels of the source image
-        //! @param dstLen     Number of pixels of the destination image
-        //! @param dstOffset  The coordinate of the destination image
-        //! @param numCoefs   Size of table
-        //! @param fTable     The table (float or double)
-        //! @return Sum of the table
-        float setLinearTable(
-            size_t srcLen,
-            size_t dstLen,
-            ptrdiff_t dstOffset,
-            ptrdiff_t numCoefs,
-            float * fTable
-        );
 
     }
 }

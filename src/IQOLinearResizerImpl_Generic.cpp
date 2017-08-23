@@ -182,7 +182,7 @@ namespace iqo {
         uint16_t bias,
         uint16_t * __restrict dst)
     {
-        const int k1_0 = bias;
+        const uint16_t k1_0 = bias;
         size_t numCoefs = 2;
         size_t numTables = (srcEnd - srcBegin) / numCoefs;
 
@@ -367,7 +367,6 @@ namespace iqo {
         ptrdiff_t tableSize = m_NumTablesX * numCoefs;
         ptrdiff_t iTable = (numCoefs * begin) % tableSize;
         LinearIterator iSrcOX(m_DstW, m_SrcW);
-        ptrdiff_t dstW = m_DstW;
 
         // align center
         iSrcOX.setX(m_SrcW - m_DstW, 2 * m_DstW);
