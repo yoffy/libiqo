@@ -20,7 +20,7 @@ Image processing library for C++.
 
 ## Build
 
-Run `cmake` and `make` in this directory.
+Create building directory, and run `cmake` and `make` in that.
 
 ```
 $ git clone https://github.com/yoffy/libiqo.git
