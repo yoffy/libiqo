@@ -623,10 +623,10 @@ int main(int argc, char *argv[])
     if (   srcW == 0 || srcH == 0
         || dstW == 0 || dstH == 0 )
     {
-        std::printf("usage: resize_yuv420 -m method -iw in_width -ih in_height -ow out_width -oh out_height\n");
+        std::printf("usage: benchmark -m method -iw in_width -ih in_height -ow out_width -oh out_height\n");
         std::printf("method: linear | area | lanczos[1-9]");
         if ( haveOpenCV() ) {
-            std::printf(" | cv-area | cv-lanczos4");
+            std::printf(" | cv-linear | cv-area | cv-lanczos4");
         }
         if ( haveIPP() ) {
             std::printf(" | ipp-super | ipp-lanczos[2-3]");
