@@ -17,10 +17,14 @@ namespace iqo {
         size_t dstLen,
         float * __restrict fTable
     ) {
+        // o: center of a pixel (on a coordinate)
+        // |: boundary of pixels
+        //
         // scale = 4:5
         //
         // fomula dstX to srcX (align center):
-        //     (dstX+0.5) * 4/5 - 0.5
+        //     (4 - 5)/(2 * 5) + dstX * 4/5
+        //     = (dstX+0.5) * 4/5 - 0.5
         //
         // srcX -0.5  0.00 0.50 1.00 1.5  2.00 2.50 3.00 3.5
         // src    |    o    |    o    |    o    |    o    |
@@ -31,7 +35,8 @@ namespace iqo {
         //
         // scale = 2:11
         // fomula dstX to srcX (align center):
-        //     (dstX+0.5) * 2/11 - 0.5
+        //     (2 - 11)/(2 * 11) + dstX * 2/11
+        //     = (dstX+0.5) * 2/11 - 0.5
         //
         // srcX -0.5        0.0        0.5        1.0        1.5
         // src    |          o          |          o          |

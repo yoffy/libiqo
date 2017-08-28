@@ -16,6 +16,13 @@ add_library(iqo IQOHWCap.cpp
 target_include_directories(iqo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 
 
+# CXX base flags
+
+if ( CMAKE_COMPILER_IS_GNUCXX OR ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang") )
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++98")
+endif()
+
+
 # Intel
 
 if ( CMAKE_COMPILER_IS_GNUCXX OR ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang") )
@@ -51,6 +58,8 @@ elseif ( MSVC )
     set(CMAKE_REQUIRED_FLAGS    "/arch:AVX512")
     set(CMAKE_REQUIRED_INCLUDES "immintrin.h")
     check_function_exists(_mm512_cvt_roundps_epi32 COMPILER_HAVE_MM512_CVT_ROUNDPS_EPI32)
+    set(CMAKE_REQUIRED_FLAGS    "")
+    set(CMAKE_REQUIRED_INCLUDES "")
     if ( COMPILER_HAVE_MM512_CVT_ROUNDPS_EPI32 )
         CHECK_CXX_COMPILER_FLAG("/arch:AVX512"          COMPILER_SUPPORTS_ARCH_AVX512)
         if ( COMPILER_SUPPORTS_ARCH_AVX512 )

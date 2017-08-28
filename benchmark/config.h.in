@@ -1,0 +1,5 @@
+//! have opencv2/opencv.hpp (OpenCV)
+#cmakedefine HAVE_OPENCV_HPP
+
+//! have ipp.h (Intel IPP)
+#cmakedefine HAVE_IPP_H
