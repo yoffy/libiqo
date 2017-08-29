@@ -237,10 +237,14 @@ namespace {
             size_t dstStY, uint8_t * dstY,
             size_t dstStUV, uint8_t * dstU, uint8_t * dstV
         ) {
+            int algorithm = 0;
+#if defined(HAVE_OPENCV_HPP)
+            algorithm = cv::INTER_LINEAR;
+#endif
             return ResizeCV420P(
                 srcW, srcH, srcStY, srcY, srcStUV, srcU, srcV,
                 dstW, dstH, dstStY, dstY, dstStUV, dstU, dstV,
-                cv::INTER_LINEAR
+                algorithm
             );
         }
     };
@@ -257,10 +261,14 @@ namespace {
             size_t dstStY, uint8_t * dstY,
             size_t dstStUV, uint8_t * dstU, uint8_t * dstV
         ) {
+            int algorithm = 0;
+#if defined(HAVE_OPENCV_HPP)
+            algorithm = cv::INTER_AREA;
+#endif
             return ResizeCV420P(
                 srcW, srcH, srcStY, srcY, srcStUV, srcU, srcV,
                 dstW, dstH, dstStY, dstY, dstStUV, dstU, dstV,
-                cv::INTER_AREA
+                algorithm
             );
         }
     };
@@ -277,10 +285,14 @@ namespace {
             size_t dstStY, uint8_t * dstY,
             size_t dstStUV, uint8_t * dstU, uint8_t * dstV
         ) {
+            int algorithm = 0;
+#if defined(HAVE_OPENCV_HPP)
+            algorithm = cv::INTER_LANCZOS4;
+#endif
             return ResizeCV420P(
                 srcW, srcH, srcStY, srcY, srcStUV, srcU, srcV,
                 dstW, dstH, dstStY, dstY, dstStUV, dstU, dstV,
-                cv::INTER_LANCZOS4
+                algorithm
             );
         }
     };
@@ -609,7 +621,9 @@ failUV:
 
 int main(int argc, char *argv[])
 {
+#if defined(HAVE_IPP_H)
     ippInit();
+#endif
 
     std::map<std::string, std::string> args = getArgs(argc, argv);
     std::string method = args["m"];
