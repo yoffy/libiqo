@@ -1,10 +1,18 @@
 cmake_minimum_required(VERSION 3.5)
-project(iqo)
+project(benchmark)
 
-include(CheckCXXCompilerFlag)
-include(CheckFunctionExists)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ../lib/)
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ../lib/)
+include(CheckIncludeFileCXX)
+
+add_executable(benchmark benchmark.cpp)
+
+
+# check include files
+set(CMAKE_REQUIRED_FLAGS "-lopencv_core")
+CHECK_INCLUDE_FILE_CXX(opencv2/opencv.hpp HAVE_OPENCV_HPP)
+set(CMAKE_REQUIRED_FLAGS "")
+CHECK_INCLUDE_FILE_CXX(ipp.h HAVE_IPP_H)
+
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
 
 # default build type
@@ -13,16 +21,13 @@ if ( NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE )
 endif()
 
 
-# options
-option(WITH_OPENMP "Use OpenMP" OFF)
-
-
 # CXX base flags
 if ( CMAKE_COMPILER_IS_GNUCXX OR ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang") )
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -g")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-exceptions -g")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wconversion -Wno-sign-conversion")
 elseif ( MSVC )
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /W3 /Zi")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D _CRT_SECURE_NO_WARNINGS=1")
 endif()
 
 
@@ -51,19 +56,14 @@ elseif( MSVC )
 endif()
 
 
-# OpenMP
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_BASE_FLAGS} ${CMAKE_CXX_OPT_FLAGS}")
-if ( WITH_OPENMP )
-    find_package(OpenMP)
-    if ( OPENMP_FOUND )
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_CXX_FLAGS}")
-    endif()
+# linker options
+if ( MSVC )
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
 endif()
-
-
-# include and sub projects
-include_directories(include)
-add_subdirectory(src)
-add_subdirectory(sample)
-add_subdirectory(benchmark)
+target_link_libraries(benchmark LINK_PUBLIC iqo)
+if ( HAVE_OPENCV_HPP )
+    target_link_libraries(benchmark LINK_PUBLIC opencv_core opencv_imgproc)
+endif()
+if ( HAVE_IPP_H )
+    target_link_libraries(benchmark LINK_PUBLIC ippi ipps ippcore)
+endif()
