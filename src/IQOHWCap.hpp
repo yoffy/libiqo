@@ -6,6 +6,9 @@ namespace iqo {
     class HWCap
     {
     public:
+        static int getNumberOfProcs();
+        static int getThreadNumber();
+
         HWCap();
 
 #if defined(IQO_CPU_X86)

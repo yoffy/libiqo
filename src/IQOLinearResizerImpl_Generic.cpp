@@ -276,7 +276,7 @@ namespace iqo {
     //! @param srcOY  The origin of current line
     void LinearResizerImpl<ArchGeneric>::resizeYborder(
         ptrdiff_t srcSt, const uint8_t * src,
-        ptrdiff_t dstW, uint16_t * dst,
+        ptrdiff_t dstW, uint16_t * __restrict dst,
         ptrdiff_t srcOY
     ) {
         uint16_t coef = kBias;
@@ -373,7 +373,7 @@ namespace iqo {
         iSrcOX += begin;
 
         for ( ptrdiff_t dstX = begin; dstX < end; ++dstX ) {
-            //        srcOX = floor(dstX / scale);
+            //        srcOX = floor((dstX+0.5) / scale - 0.5);
             ptrdiff_t srcOX = *iSrcOX++;
             //               coefs = &tablesX[dstX % m_NumTablesX * m_NumCoefsX];
             const uint16_t * coefs = &tablesX[iTable];

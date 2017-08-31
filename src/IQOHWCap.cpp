@@ -7,6 +7,24 @@
 
 namespace iqo {
 
+    int HWCap::getNumberOfProcs()
+    {
+#if defined(_OPENMP)
+        return omp_get_num_procs();
+#else
+        return 1;
+#endif
+    }
+
+    int HWCap::getThreadNumber()
+    {
+#if defined(_OPENMP)
+        return omp_get_thread_num();
+#else
+        return 0;
+#endif
+    }
+
     HWCap::HWCap()
     {
 #if defined(IQO_CPU_X86)
