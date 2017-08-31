@@ -35,19 +35,6 @@ namespace {
         return f32x4V;
     }
 
-    __m128 mask_gather_ps(const float * f32Src, __m128i s32x4Indices, __m128i u32x4Mask)
-    {
-        int32_t s32Indices[4];
-        float f32Dst[4];
-        uint32_t b16Mask = _mm_movemask_epi8(u32x4Mask);
-        _mm_storeu_si128((__m128i*)s32Indices, s32x4Indices);
-        for ( int i = 0; i < 4; ++i ) {
-            f32Dst[i] = (b16Mask & 1) ? f32Src[s32Indices[i]] : 0;
-            b16Mask >>= 4;
-        }
-        return _mm_loadu_ps(f32Dst);
-    }
-
     uint8_t cvt_roundss_su8(float v)
     {
         __m128  f32x1V     = _mm_set_ss(v);
@@ -423,19 +410,11 @@ namespace iqo {
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
         ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
-        ptrdiff_t tableSize = tableWidth * m_NumUnrolledCoordsX;
         int32_t numCoefsX = m_NumCoefsX;
         int32_t srcW = m_SrcW;
-        int32_t dstW = m_DstW;
-        LinearIterator iSrcOX(dstW, srcW);
-
-        // align center
-        iSrcOX.setX(srcW - dstW, 2 * dstW);
-        iSrcOX += begin;
 
         for ( int32_t dstX = begin; dstX < end; ++dstX ) {
-            //      srcOX = floor((dstX+0.5) / scale - 0.5);
-            int32_t srcOX = int32_t(*iSrcOX++);
+            int32_t srcOX = indices[dstX];
             float   sum   = 0;
 
             if ( dstX < mainBegin ) {

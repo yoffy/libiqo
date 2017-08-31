@@ -35,6 +35,7 @@ Makefile
 CMakeFiles
 CMakeCache.txt
 *.cmake
+benchmark/config.h
 
 # Images
 *.yuv

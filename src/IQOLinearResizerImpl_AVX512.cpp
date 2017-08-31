@@ -99,8 +99,6 @@ namespace iqo {
         int32_t m_SrcH;
         int32_t m_DstW;
         int32_t m_DstH;
-        int32_t m_NumCoefsX;
-        int32_t m_NumCoefsY;
         int32_t m_NumCoordsX;
         int32_t m_NumUnrolledCoordsX;
         int32_t m_TablesXWidth;
@@ -132,10 +130,8 @@ namespace iqo {
 
     // Constructor
     void LinearResizerImpl<ArchAVX512>::init(
-        unsigned int degree,
         size_t srcW, size_t srcH,
-        size_t dstW, size_t dstH,
-        size_t pxScale
+        size_t dstW, size_t dstH
     ) {
         m_SrcW = int32_t(srcW);
         m_SrcH = int32_t(srcH);
@@ -220,7 +216,7 @@ namespace iqo {
         }
     }
 
-    void LinearResizerImpl<ArchSSE4_1>::resize(
+    void LinearResizerImpl<ArchAVX512>::resize(
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
@@ -290,7 +286,7 @@ namespace iqo {
     //! @param src    A row of source
     //! @param dst    A row of destination (multiplied by kBias)
     //! @param srcOY  The origin of current line
-    void LinearResizerImpl<ArchSSE4_1>::resizeYborder(
+    void LinearResizerImpl<ArchAVX512>::resizeYborder(
         ptrdiff_t srcSt, const uint8_t * src,
         int32_t dstW, float * __restrict dst,
         int32_t srcOY
@@ -386,7 +382,7 @@ namespace iqo {
     //! @param dst    A row of destination
     //! @param begin  Position of a first pixel
     //! @param end    Position of next of a last pixel
-    void LinearResizerImpl<ArchSSE4_1>::resizeXborder(
+    void LinearResizerImpl<ArchAVX512>::resizeXborder(
         const float * src, uint8_t * __restrict dst,
         int32_t mainBegin, int32_t mainEnd,
         int32_t begin, int32_t end
@@ -394,19 +390,11 @@ namespace iqo {
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
         ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
-        ptrdiff_t tableSize = tableWidth * m_NumUnrolledCoordsX;
         int32_t numCoefsX = m_NumCoefsX;
         int32_t srcW = m_SrcW;
-        int32_t dstW = m_DstW;
-        LinearIterator iSrcOX(dstW, srcW);
-
-        // align center
-        iSrcOX.setX(srcW - dstW, 2 * dstW);
-        iSrcOX += begin;
 
         for ( int32_t dstX = begin; dstX < end; ++dstX ) {
-            //      srcOX = floor((dstX+0.5) / scale - 0.5);
-            int32_t srcOX = int32_t(*iSrcOX++);
+            int32_t srcOX = indices[dstX];
             float   sum   = 0;
 
             if ( dstX < mainBegin ) {

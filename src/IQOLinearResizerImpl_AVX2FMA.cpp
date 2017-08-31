@@ -395,19 +395,11 @@ namespace iqo {
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
         ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
-        ptrdiff_t tableSize = tableWidth * m_NumUnrolledCoordsX;
         int32_t numCoefsX = m_NumCoefsX;
         int32_t srcW = m_SrcW;
-        int32_t dstW = m_DstW;
-        LinearIterator iSrcOX(dstW, srcW);
-
-        // align center
-        iSrcOX.setX(srcW - dstW, 2 * dstW);
-        iSrcOX += begin;
 
         for ( int32_t dstX = begin; dstX < end; ++dstX ) {
-            //      srcOX = floor((dstX+0.5) / scale - 0.5);
-            int32_t srcOX = int32_t(*iSrcOX++);
+            int32_t srcOX = indices[dstX];
             float   sum   = 0;
 
             if ( dstX < mainBegin ) {
