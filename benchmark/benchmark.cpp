@@ -84,36 +84,6 @@ namespace {
         ) = 0;
     };
 
-    //! IQO Linear
-    class IQOLinearResizer : public IResizer
-    {
-    public:
-        int resize(
-            size_t srcW, size_t srcH,
-            size_t srcStY, const uint8_t * srcY,
-            size_t srcStUV, const uint8_t * srcU, const uint8_t * srcV,
-            size_t dstW, size_t dstH,
-            size_t dstStY, uint8_t * dstY,
-            size_t dstStUV, uint8_t * dstU, uint8_t * dstV
-        ) {
-            // resize Y
-            {
-                iqo::LinearResizer r(srcW, srcH, dstW, dstH);
-
-                r.resize(srcStY, srcY, dstStY, dstY);
-            }
-            // resize U and V
-            {
-                iqo::LinearResizer r(srcW / 2, srcH / 2, dstW / 2, dstH / 2);
-
-                r.resize(srcStUV, srcU, dstStUV, dstU);
-                r.resize(srcStUV, srcV, dstStUV, dstV);
-            }
-
-            return 0;
-        }
-    };
-
     //! IQO Area
     class IQOAreaResizer : public IResizer
     {
@@ -135,6 +105,36 @@ namespace {
             // resize U and V
             {
                 iqo::AreaResizer r(srcW / 2, srcH / 2, dstW / 2, dstH / 2);
+
+                r.resize(srcStUV, srcU, dstStUV, dstU);
+                r.resize(srcStUV, srcV, dstStUV, dstV);
+            }
+
+            return 0;
+        }
+    };
+
+    //! IQO Linear
+    class IQOLinearResizer : public IResizer
+    {
+    public:
+        int resize(
+            size_t srcW, size_t srcH,
+            size_t srcStY, const uint8_t * srcY,
+            size_t srcStUV, const uint8_t * srcU, const uint8_t * srcV,
+            size_t dstW, size_t dstH,
+            size_t dstStY, uint8_t * dstY,
+            size_t dstStUV, uint8_t * dstU, uint8_t * dstV
+        ) {
+            // resize Y
+            {
+                iqo::LinearResizer r(srcW, srcH, dstW, dstH);
+
+                r.resize(srcStY, srcY, dstStY, dstY);
+            }
+            // resize U and V
+            {
+                iqo::LinearResizer r(srcW / 2, srcH / 2, dstW / 2, dstH / 2);
 
                 r.resize(srcStUV, srcU, dstStUV, dstU);
                 r.resize(srcStUV, srcV, dstStUV, dstV);
@@ -225,30 +225,6 @@ namespace {
         return status;
     }
 
-    //! OpenCV Linear
-    class CVLinearResizer : public IResizer
-    {
-    public:
-        int resize(
-            size_t srcW, size_t srcH,
-            size_t srcStY, const uint8_t * srcY,
-            size_t srcStUV, const uint8_t * srcU, const uint8_t * srcV,
-            size_t dstW, size_t dstH,
-            size_t dstStY, uint8_t * dstY,
-            size_t dstStUV, uint8_t * dstU, uint8_t * dstV
-        ) {
-            int algorithm = 0;
-#if defined(HAVE_OPENCV_HPP)
-            algorithm = cv::INTER_LINEAR;
-#endif
-            return ResizeCV420P(
-                srcW, srcH, srcStY, srcY, srcStUV, srcU, srcV,
-                dstW, dstH, dstStY, dstY, dstStUV, dstU, dstV,
-                algorithm
-            );
-        }
-    };
-
     //! OpenCV Area
     class CVAreaResizer : public IResizer
     {
@@ -264,6 +240,30 @@ namespace {
             int algorithm = 0;
 #if defined(HAVE_OPENCV_HPP)
             algorithm = cv::INTER_AREA;
+#endif
+            return ResizeCV420P(
+                srcW, srcH, srcStY, srcY, srcStUV, srcU, srcV,
+                dstW, dstH, dstStY, dstY, dstStUV, dstU, dstV,
+                algorithm
+            );
+        }
+    };
+
+    //! OpenCV Linear
+    class CVLinearResizer : public IResizer
+    {
+    public:
+        int resize(
+            size_t srcW, size_t srcH,
+            size_t srcStY, const uint8_t * srcY,
+            size_t srcStUV, const uint8_t * srcU, const uint8_t * srcV,
+            size_t dstW, size_t dstH,
+            size_t dstStY, uint8_t * dstY,
+            size_t dstStUV, uint8_t * dstU, uint8_t * dstV
+        ) {
+            int algorithm = 0;
+#if defined(HAVE_OPENCV_HPP)
+            algorithm = cv::INTER_LINEAR;
 #endif
             return ResizeCV420P(
                 srcW, srcH, srcStY, srcY, srcStUV, srcU, srcV,
@@ -417,6 +417,186 @@ failY:
 
 failUV:
                 ippsFree(buffer);
+                ippsFree(spec);
+            }
+#else
+            std::printf("ipp-super is not implemented.\n");
+            status = 1;
+#endif
+
+            return status;
+        }
+    };
+
+    //! IPP Linear
+    class IPPLinearResizer : public IResizer
+    {
+    public:
+        int resize(
+            size_t srcW, size_t srcH,
+            size_t srcStY, const uint8_t * srcY,
+            size_t srcStUV, const uint8_t * srcU, const uint8_t * srcV,
+            size_t dstW, size_t dstH,
+            size_t dstStY, uint8_t * dstY,
+            size_t dstStUV, uint8_t * dstU, uint8_t * dstV
+        ) {
+            int status = 0;
+
+#if defined(HAVE_IPP_H)
+            // resize Y
+            {
+                IppiSize srcSize = { Ipp32s(srcW), Ipp32s(srcH) };
+                IppiSize dstSize = { Ipp32s(dstW), Ipp32s(dstH) };
+                IppiPoint offset = { 0, 0 };
+                Ipp32s specSize = 0;
+                Ipp32s initBufSize = 0;
+                Ipp32s bufSize = 0;
+                IppiResizeSpec_32f * spec = nullptr;
+                Ipp8u * initBuffer = nullptr;
+                Ipp8u * buffer = nullptr;
+                Ipp32u isAA = (srcSize.width > dstSize.width || srcSize.height > dstSize.height);
+
+                status = ippiResizeGetSize_8u(srcSize, dstSize, ippLinear, isAA, &specSize, &initBufSize);
+                if ( status ) {
+                    std::printf("Y: error ippiResizeGetSize_8u: %d\n", status);
+                    goto failY;
+                }
+                spec = reinterpret_cast<IppiResizeSpec_32f*>(ippsMalloc_8u(specSize));
+
+                if ( isAA ) {
+                    initBuffer = ippsMalloc_8u(initBufSize);
+                    status = ippiResizeAntialiasingLinearInit(srcSize, dstSize, spec, initBuffer);
+                } else {
+                    status = ippiResizeLinearInit_8u(srcSize, dstSize, spec);
+                }
+                if ( status ) {
+                    std::printf("Y: error ippiResizeLinearInit_8u: %d\n", status);
+                    goto failY;
+                }
+
+                status = ippiResizeGetBufferSize_8u(spec, dstSize, 1, &bufSize);
+                if ( status ) {
+                    std::printf("Y: error ippiResizeGetBufferSize_8u: %d\n", status);
+                    goto failY;
+                }
+                buffer = ippsMalloc_8u(bufSize);
+
+                if ( isAA ) {
+                    status = ippiResizeAntialiasing_8u_C1R(
+                        srcY, Ipp32s(srcStY),
+                        dstY, Ipp32s(dstStY),
+                        offset, dstSize,
+                        ippBorderRepl, nullptr,
+                        spec, buffer
+                    );
+                } else {
+                    status = ippiResizeLinear_8u_C1R(
+                        srcY, Ipp32s(srcStY),
+                        dstY, Ipp32s(dstStY),
+                        offset, dstSize,
+                        ippBorderRepl, nullptr,
+                        spec, buffer
+                    );
+                }
+                if ( status ) {
+                    std::printf("Y: error ippiResizeLinear_8u_C1R: %d\n", status);
+                    goto failY;
+                }
+
+failY:
+                ippsFree(buffer);
+                ippsFree(initBuffer);
+                ippsFree(spec);
+            }
+            if ( status ) {
+                return status;
+            }
+
+            // resize UV
+            {
+                IppiSize srcSize = { Ipp32s(srcW / 2), Ipp32s(srcH / 2) };
+                IppiSize dstSize = { Ipp32s(dstW / 2), Ipp32s(dstH / 2) };
+                IppiPoint offset = { 0, 0 };
+                Ipp32s specSize = 0;
+                Ipp32s initBufSize = 0;
+                Ipp32s bufSize = 0;
+                IppiResizeSpec_32f * spec = nullptr;
+                Ipp8u * initBuffer = nullptr;
+                Ipp8u * buffer = nullptr;
+                Ipp32u isAA = (srcSize.width > dstSize.width || srcSize.height > dstSize.height);
+
+                status = ippiResizeGetSize_8u(srcSize, dstSize, ippLinear, isAA, &specSize, &initBufSize);
+                if ( status ) {
+                    std::printf("UV: error ippiResizeGetSize_8u: %d\n", status);
+                    goto failUV;
+                }
+                spec = reinterpret_cast<IppiResizeSpec_32f*>(ippsMalloc_8u(specSize));
+                initBuffer = ippsMalloc_8u(initBufSize);
+
+                if ( isAA ) {
+                    status = ippiResizeAntialiasingLinearInit(srcSize, dstSize, spec, initBuffer);
+                } else {
+                    status = ippiResizeLinearInit_8u(srcSize, dstSize, spec);
+                }
+                if ( status ) {
+                    std::printf("UV: error ippiResizeLinearInit_8u: %d\n", status);
+                    goto failUV;
+                }
+
+                status = ippiResizeGetBufferSize_8u(spec, dstSize, 1, &bufSize);
+                if ( status ) {
+                    std::printf("UV: error ippiResizeGetBufferSize_8u: %d\n", status);
+                    goto failUV;
+                }
+                buffer = ippsMalloc_8u(bufSize);
+
+                if ( isAA ) {
+                    status = ippiResizeAntialiasing_8u_C1R(
+                        srcU, Ipp32s(srcStUV),
+                        dstU, Ipp32s(dstStUV),
+                        offset, dstSize,
+                        ippBorderRepl, nullptr,
+                        spec, buffer
+                    );
+                } else {
+                    status = ippiResizeLinear_8u_C1R(
+                        srcU, Ipp32s(srcStUV),
+                        dstU, Ipp32s(dstStUV),
+                        offset, dstSize,
+                        ippBorderRepl, nullptr,
+                        spec, buffer
+                    );
+                }
+                if ( status ) {
+                    std::printf("U: error ippiResizeLinear_8u_C1R: %d\n", status);
+                    goto failUV;
+                }
+
+                if ( isAA ) {
+                    status = ippiResizeAntialiasing_8u_C1R(
+                        srcV, Ipp32s(srcStUV),
+                        dstV, Ipp32s(dstStUV),
+                        offset, dstSize,
+                        ippBorderRepl, nullptr,
+                        spec, buffer
+                    );
+                } else {
+                    status = ippiResizeLinear_8u_C1R(
+                        srcV, Ipp32s(srcStUV),
+                        dstV, Ipp32s(dstStUV),
+                        offset, dstSize,
+                        ippBorderRepl, nullptr,
+                        spec, buffer
+                    );
+                }
+                if ( status ) {
+                    std::printf("V: error ippiResizeLinear_8u_C1R: %d\n", status);
+                    goto failUV;
+                }
+
+failUV:
+                ippsFree(buffer);
+                ippsFree(initBuffer);
                 ippsFree(spec);
             }
 #else
@@ -638,12 +818,12 @@ int main(int argc, char *argv[])
         || dstW == 0 || dstH == 0 )
     {
         std::printf("usage: benchmark -m method -iw in_width -ih in_height -ow out_width -oh out_height\n");
-        std::printf("method: linear | area | lanczos[1-9]");
+        std::printf("method: area | linear | lanczos[1-9]");
         if ( haveOpenCV() ) {
-            std::printf(" | cv-linear | cv-area | cv-lanczos4");
+            std::printf(" | cv-area | cv-linear | cv-lanczos4");
         }
         if ( haveIPP() ) {
-            std::printf(" | ipp-super | ipp-lanczos[2-3]");
+            std::printf(" | ipp-super | ipp-linear | ipp-lanczos[2-3]");
         }
         std::printf("\n");
         return EINVAL;
@@ -670,7 +850,7 @@ int main(int argc, char *argv[])
     size_t dstSize = dstSizeY + dstSizeU * 2;
     std::vector<uint8_t> src(srcSize);
     std::vector<uint8_t> dst(dstSize);
-    std::unique_ptr<IResizer> Resizer;
+    std::unique_ptr<IResizer> resizer;
 
     std::printf("method: %s\n", method.c_str());
     if ( method == "lanczos" ) {
@@ -678,52 +858,55 @@ int main(int argc, char *argv[])
         std::printf("  degree: %d\n", degree);
     }
 
-    if ( method == "linear" ) {
-        if ( srcW > dstW || srcH > dstH ) {
-            std::printf("warning: linear supports only up-sampling.\n");
-        }
-        Resizer.reset(new IQOLinearResizer);
-    }
     if ( method == "area" ) {
         if ( srcW < dstW || srcH < dstH ) {
             std::printf("warning: area supports only down-sampling.\n");
         }
-        Resizer.reset(new IQOAreaResizer);
+        resizer.reset(new IQOAreaResizer);
+    }
+    if ( method == "linear" ) {
+        if ( srcW > dstW || srcH > dstH ) {
+            std::printf("warning: linear supports only up-sampling.\n");
+        }
+        resizer.reset(new IQOLinearResizer);
     }
     if ( method == "lanczos" ) {
-        Resizer.reset(new IQOLanczosResizer(degree));
-    }
-    if ( method == "cv-linear" ) {
-        if ( srcW > dstW || srcH > dstH ) {
-            std::printf("warning: cv-linear supports only up-sampling.\n");
-        }
-        Resizer.reset(new CVLinearResizer);
+        resizer.reset(new IQOLanczosResizer(degree));
     }
     if ( method == "cv-area" ) {
         if ( srcW < dstW || srcH < dstH ) {
             std::printf("warning: cv-area supports only down-sampling.\n");
         }
-        Resizer.reset(new CVAreaResizer);
+        resizer.reset(new CVAreaResizer);
+    }
+    if ( method == "cv-linear" ) {
+        if ( srcW > dstW || srcH > dstH ) {
+            std::printf("warning: cv-linear supports only up-sampling.\n");
+        }
+        resizer.reset(new CVLinearResizer);
     }
     if ( method == "cv-lanczos4" ) {
         if ( srcW > dstW || srcH > dstH ) {
             std::printf("warning: cv-lanczos4 supports only up-sampling.\n");
         }
-        Resizer.reset(new CVLanczos4Resizer);
+        resizer.reset(new CVLanczos4Resizer);
     }
     if ( method == "ipp-super" ) {
         if ( srcW < dstW || srcH < dstH ) {
             std::printf("warning: ipp-super supports only down-sampling.\n");
         }
-        Resizer.reset(new IPPSuperResizer);
+        resizer.reset(new IPPSuperResizer);
+    }
+    if ( method == "ipp-linear" ) {
+        resizer.reset(new IPPLinearResizer);
     }
     if ( method == "ipp-lanczos2" ) {
-        Resizer.reset(new IPPLanczosResizer(2));
+        resizer.reset(new IPPLanczosResizer(2));
     }
     if ( method == "ipp-lanczos3" ) {
-        Resizer.reset(new IPPLanczosResizer(3));
+        resizer.reset(new IPPLanczosResizer(3));
     }
-    if ( ! Resizer ) {
+    if ( ! resizer ) {
         std::printf("invalid method: %s\n", method.c_str());
         return EINVAL;
     }
@@ -734,7 +917,7 @@ int main(int argc, char *argv[])
     std::printf("output\n");
     std::printf("    size: %lux%lu\n", dstW, dstH);
     std::printf("  stride: %lux%lu\n", dstStX, dstStY);
-    std::printf("Resizer\n");
+    std::printf("resizer\n");
     std::printf("  cycles: %d\n", numCycles);
 
     // setup pointers
@@ -752,7 +935,7 @@ int main(int argc, char *argv[])
     auto startTime = std::chrono::high_resolution_clock::now();
 
     for ( int i = 0; i < numCycles; i++ ) {
-        int status = Resizer->resize(
+        int status = resizer->resize(
             srcW, srcH, srcStX, srcY, srcStX / 2, srcU, srcV,
             dstW, dstH, dstStX, dstY, dstStX / 2, dstU, dstV
         );
