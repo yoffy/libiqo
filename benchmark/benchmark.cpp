@@ -15,6 +15,10 @@
 
 #include "config.h"
 
+#if defined(_OPENMP)
+    #include <omp.h>
+#endif
+
 #if defined(HAVE_OPENCV_HPP)
 #   include <opencv2/opencv.hpp>
 #endif
@@ -71,9 +75,39 @@ namespace {
 #endif
     }
 
+    int IQOGetNumberOfThreads()
+    {
+#if defined(_OPENMP)
+        return omp_get_max_threads();
+#else
+        return 1;
+#endif
+    }
+
+    int CVGetNumThreads()
+    {
+#if defined(HAVE_OPENCV_HPP)
+        return cv::getNumThreads();
+#else
+        return 0;
+#endif
+    }
+
+    int IPPGetNumThreads()
+    {
+#if defined(HAVE_IPP_H)
+        int n = 0;
+        ippGetNumThreads(&n);
+        return n;
+#else
+        return 0;
+#endif
+    }
+
     class IResizer
     {
     public:
+        virtual int getNumThreads() const = 0;
         virtual int resize(
             size_t srcW, size_t srcH,
             size_t srcStY, const uint8_t * srcY,
@@ -88,6 +122,11 @@ namespace {
     class IQOAreaResizer : public IResizer
     {
     public:
+        int getNumThreads() const
+        {
+            return IQOGetNumberOfThreads();
+        }
+
         int resize(
             size_t srcW, size_t srcH,
             size_t srcStY, const uint8_t * srcY,
@@ -118,6 +157,11 @@ namespace {
     class IQOLinearResizer : public IResizer
     {
     public:
+        int getNumThreads() const
+        {
+            return IQOGetNumberOfThreads();
+        }
+
         int resize(
             size_t srcW, size_t srcH,
             size_t srcStY, const uint8_t * srcY,
@@ -151,6 +195,11 @@ namespace {
         IQOLanczosResizer(int degree)
         {
             m_Degree = degree;
+        }
+
+        int getNumThreads() const
+        {
+            return IQOGetNumberOfThreads();
         }
 
         int resize(
@@ -229,6 +278,11 @@ namespace {
     class CVAreaResizer : public IResizer
     {
     public:
+        int getNumThreads() const
+        {
+            return CVGetNumThreads();
+        }
+
         int resize(
             size_t srcW, size_t srcH,
             size_t srcStY, const uint8_t * srcY,
@@ -253,6 +307,11 @@ namespace {
     class CVLinearResizer : public IResizer
     {
     public:
+        int getNumThreads() const
+        {
+            return CVGetNumThreads();
+        }
+
         int resize(
             size_t srcW, size_t srcH,
             size_t srcStY, const uint8_t * srcY,
@@ -277,6 +336,11 @@ namespace {
     class CVLanczos4Resizer : public IResizer
     {
     public:
+        int getNumThreads() const
+        {
+            return CVGetNumThreads();
+        }
+
         int resize(
             size_t srcW, size_t srcH,
             size_t srcStY, const uint8_t * srcY,
@@ -301,6 +365,11 @@ namespace {
     class IPPSuperResizer : public IResizer
     {
     public:
+        int getNumThreads() const
+        {
+            return IPPGetNumThreads();
+        }
+
         int resize(
             size_t srcW, size_t srcH,
             size_t srcStY, const uint8_t * srcY,
@@ -432,6 +501,11 @@ failUV:
     class IPPLinearResizer : public IResizer
     {
     public:
+        int getNumThreads() const
+        {
+            return IPPGetNumThreads();
+        }
+
         int resize(
             size_t srcW, size_t srcH,
             size_t srcStY, const uint8_t * srcY,
@@ -615,6 +689,11 @@ failUV:
         IPPLanczosResizer(int degree)
         {
             m_Degree = degree;
+        }
+
+        int getNumThreads() const
+        {
+            return IPPGetNumThreads();
         }
 
         int resize(
@@ -911,13 +990,15 @@ int main(int argc, char *argv[])
         return EINVAL;
     }
 
+    std::printf("cpu\n");
+    std::printf(" threads: %d\n", resizer->getNumThreads());
     std::printf("input\n");
     std::printf("    size: %lux%lu\n", srcW, srcH);
     std::printf("  stride: %lux%lu\n", srcStX, srcStY);
     std::printf("output\n");
     std::printf("    size: %lux%lu\n", dstW, dstH);
     std::printf("  stride: %lux%lu\n", dstStX, dstStY);
-    std::printf("resizer\n");
+    std::printf("benchmark\n");
     std::printf("  cycles: %d\n", numCycles);
 
     // setup pointers

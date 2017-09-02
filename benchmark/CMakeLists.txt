@@ -6,10 +6,6 @@ include(CheckIncludeFileCXX)
 add_executable(benchmark benchmark.cpp)
 
 
-# check include files
-CHECK_INCLUDE_FILE_CXX(ipp.h HAVE_IPP_H)
-
-
 # default build type
 if ( NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE )
     set(CMAKE_BUILD_TYPE Release)
@@ -56,9 +52,6 @@ if ( MSVC )
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
 endif()
 target_link_libraries(benchmark LINK_PUBLIC iqo)
-if ( HAVE_IPP_H )
-    target_link_libraries(benchmark LINK_PUBLIC ippi ipps ippcore)
-endif()
 
 
 # OpenCV
@@ -67,6 +60,20 @@ if ( OPENCV_FOUND )
     set(HAVE_OPENCV_HPP ON)
     include_directories(${OpenCV_INCLUDE_DIRS})
     target_link_libraries(benchmark LINK_PUBLIC ${OpenCV_LIBS})
+endif()
+
+
+# Intel IPP
+find_path(IPP_H_PATH NAMES ipp.h PATHS $ENV{IPPROOT}/include NO_DEFAULT_PATH NO_CMAKE_PATH)
+if ( IPP_H_PATH )
+    set(HAVE_IPP_H ON)
+    set(IPP_INCLUDE_DIR $ENV{IPPROOT}/include)
+    set(IPP_LIB_DIR $ENV{IPPROOT}/lib/$ENV{IPP_TARGET_ARCH})
+    message(STATUS "IPP_INCLUDE: ${IPP_INCLUDE_DIR}")
+    message(STATUS "IPP_LIB: ${IPP_LIB_DIR}")
+    include_directories(${IPP_INCLUDE_DIR})
+    link_directories(benchmark LINK_PUBLIC ${IPP_LIB_DIR})
+    target_link_libraries(benchmark LINK_PUBLIC ippi ipps ippcore)
 endif()
 
 
