@@ -7,10 +7,6 @@
 #include <vector>
 #include <immintrin.h>
 
-#if defined(_OPENMP)
-    #include <omp.h>
-#endif
-
 #include "math.hpp"
 #include "IQOHWCap.hpp"
 

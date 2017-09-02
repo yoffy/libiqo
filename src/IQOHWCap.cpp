@@ -4,6 +4,10 @@
     #include <intrin.h>
 #endif
 
+#if defined(_OPENMP)
+    #include <omp.h>
+#endif
+
 
 namespace iqo {
 
