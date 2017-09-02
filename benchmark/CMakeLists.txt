@@ -1,3 +1,9 @@
+# benchmak
+#
+# Optional Variables:
+#     OPENCV_DIR  Path to OpenCV. It is parent directory of include directory.
+#     IPPROOT     Path to Intel IPP. Set ippvars.sh (ippvars.bat in Windows)
+
 cmake_minimum_required(VERSION 3.5)
 project(benchmark)
 
@@ -55,7 +61,7 @@ target_link_libraries(benchmark LINK_PUBLIC iqo)
 
 
 # OpenCV
-find_package(OpenCV)
+find_package(OpenCV COMPONENTS core imgproc)
 if ( OPENCV_FOUND )
     set(HAVE_OPENCV_HPP ON)
     include_directories(${OpenCV_INCLUDE_DIRS})
@@ -72,8 +78,11 @@ if ( IPP_H_PATH )
     message(STATUS "IPP_INCLUDE: ${IPP_INCLUDE_DIR}")
     message(STATUS "IPP_LIB: ${IPP_LIB_DIR}")
     include_directories(${IPP_INCLUDE_DIR})
-    link_directories(benchmark LINK_PUBLIC ${IPP_LIB_DIR})
-    target_link_libraries(benchmark LINK_PUBLIC ippi ipps ippcore)
+    link_directories(${IPP_LIB_DIR})
+    find_library(IPP_IPPI ippi)
+    find_library(IPP_IPPS ipps)
+    find_library(IPP_IPPCORE ippcore)
+    target_link_libraries(benchmark LINK_PUBLIC ${IPP_IPPI} ${IPP_IPPS} ${IPP_IPPCORE})
 endif()
 
 
