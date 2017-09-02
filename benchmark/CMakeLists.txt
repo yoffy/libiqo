@@ -7,12 +7,7 @@ add_executable(benchmark benchmark.cpp)
 
 
 # check include files
-set(CMAKE_REQUIRED_FLAGS "-lopencv_core")
-CHECK_INCLUDE_FILE_CXX(opencv2/opencv.hpp HAVE_OPENCV_HPP)
-set(CMAKE_REQUIRED_FLAGS "")
 CHECK_INCLUDE_FILE_CXX(ipp.h HAVE_IPP_H)
-
-CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_SOURCE_DIR}/config.h)
 
 
 # default build type
@@ -61,9 +56,19 @@ if ( MSVC )
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
 endif()
 target_link_libraries(benchmark LINK_PUBLIC iqo)
-if ( HAVE_OPENCV_HPP )
-    target_link_libraries(benchmark LINK_PUBLIC opencv_core opencv_imgproc)
-endif()
 if ( HAVE_IPP_H )
     target_link_libraries(benchmark LINK_PUBLIC ippi ipps ippcore)
 endif()
+
+
+# OpenCV
+find_package(OpenCV)
+if ( OPENCV_FOUND )
+    set(HAVE_OPENCV_HPP ON)
+    include_directories(${OpenCV_INCLUDE_DIRS})
+    target_link_libraries(benchmark LINK_PUBLIC ${OpenCV_LIBS})
+endif()
+
+
+# generate config.h
+CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in ${CMAKE_CURRENT_SOURCE_DIR}/config.h)
