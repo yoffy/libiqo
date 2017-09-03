@@ -440,7 +440,7 @@ namespace iqo {
             //      nume        = 0;
             __m256  f32x8Nume0  = _mm256_setzero_ps();
             __m256  f32x8Nume8  = _mm256_setzero_ps();
-            //      srcOX       = floor(dstX / scale) + 1;
+            //      srcOX       = int32_t(floor((dstX+0.5) / scale - 0.5));
             __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
             __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
 

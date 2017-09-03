@@ -1,11 +1,15 @@
 #include "IQOLinearResizerImpl.hpp"
 
 
-#if defined(IQO_CPU_X86) && defined(IQO_HAVE_AVX512)
+#if defined(IQO_CPU_ARM) && defined(IQO_HAVE_NEON)
 
 #include <cstring>
 #include <vector>
-#include <immintrin.h>
+#include <arm_neon.h>
+
+#if defined(_OPENMP)
+    #include <omp.h>
+#endif
 
 #include "math.hpp"
 #include "IQOHWCap.hpp"
@@ -13,28 +17,49 @@
 
 namespace {
 
-    uint8_t cvt_roundss_su8(float v)
+    float32x4_t gather(const float * src, int32x4_t indices)
     {
-        __m128  f32x1V     = _mm_set_ss(v);
-        __m128  f32x1Round = _mm_round_ss(f32x1V, f32x1V, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        int32_t s32x1Round = _mm_cvtss_si32(f32x1Round);
-        return uint8_t(iqo::clamp(0, 255, s32x1Round));
+        float32x4_t v = float32x4_t();
+        v = vld1q_lane_f32(&src[vgetq_lane_s32(indices, 0)], v, 0);
+        v = vld1q_lane_f32(&src[vgetq_lane_s32(indices, 1)], v, 1);
+        v = vld1q_lane_f32(&src[vgetq_lane_s32(indices, 2)], v, 2);
+        v = vld1q_lane_f32(&src[vgetq_lane_s32(indices, 3)], v, 3);
+        return v;
     }
 
-    //! (uint8_t)min(255, max(0, round(v)))
-    __m256i cvt_roundps_epu8(__m512 lo, __m512 hi)
+    float round_f32(float v)
     {
-        __m512i s32x16L = _mm512_cvt_roundps_epi32(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        __m512i s32x16H = _mm512_cvt_roundps_epi32(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        // HFHEHDHC LFLELDLC HBHAH9H8 LBLAL9L8 H7H6H5H4 L7L6L5L4 H3H2H1H0 L3L2L1L0
-        __m512i u16x32P  = _mm512_packus_epi32(s32x16L, s32x16H);
-        __m256i u16x16P0 = _mm512_castsi512_si256(u16x32P);
-        __m256i u16x16P1 = _mm512_extracti64x4_epi64(u16x32P, 1);
-        // HFHEHDHC LFLELDLC H7H6H5H4 L7L6L5L4 HBHAH9H8 LBLAL9L8 H3H2H1H0 L3L2L1L0
-        __m256i u8x32P = _mm256_packus_epi16(u16x16P0, u16x16P1);
-        __m256i u32x8Table = _mm256_set_epi32(7, 3, 5, 1, 6, 2, 4, 0);
-        __m256i u8x32  = _mm256_permutevar8x32_epi32(u32x8Table, u8x32P);
-        return u8x32;
+        // http://developer.apple.com/legacy/mac/library/documentation/Performance/Conceptual/Accelerate_sse_migration/migration_sse_translation/migration_sse_translation.html#//apple_ref/doc/uid/TP40002729-CH248-279676
+        float32x2_t v1_5p23f = { 0x1.5p23f, 0x1.5p23f };
+        float32x2_t vSrc = float32x2_t();
+        vSrc = vset_lane_f32(v, vSrc, 0);
+        float32x2_t vRound = vsub_f32(vadd_f32(vSrc, v1_5p23f), v1_5p23f);
+        return vget_lane_f32(vRound, 0);
+    }
+
+    float32x4_t round_f32(float32x4_t v)
+    {
+        // http://developer.apple.com/legacy/mac/library/documentation/Performance/Conceptual/Accelerate_sse_migration/migration_sse_translation/migration_sse_translation.html#//apple_ref/doc/uid/TP40002729-CH248-279676
+        float32x4_t v1_5p23f = { 0x1.5p23f, 0x1.5p23f, 0x1.5p23f, 0x1.5p23f };
+        return vsubq_f32(vaddq_f32(v, v1_5p23f), v1_5p23f);
+    }
+
+    uint8_t cvt_roundf32_u8(float v)
+    {
+        return uint8_t(iqo::clamp(0.0f, 255.0f, round_f32(v)));
+    }
+
+    uint8x8_t cvt_roundf32_u8(float32x4_t lo, float32x4_t hi)
+    {
+        float32x4_t f32x4Round0 = round_f32(lo);
+        float32x4_t f32x4Round1 = round_f32(hi);
+        int32x4_t   s32x4Round0 = vcvtq_s32_f32(f32x4Round0);
+        int32x4_t   s32x4Round1 = vcvtq_s32_f32(f32x4Round1);
+        uint16x4_t  u16x4Round0 = vqmovun_s32(s32x4Round0);
+        uint16x4_t  u16x4Round1 = vqmovun_s32(s32x4Round1);
+        uint16x8_t  u16x8Round  = vcombine_u16(u16x4Round0, u16x4Round1);
+        uint8x8_t   u8x8Round   = vqmovn_u16(u16x8Round);
+        return u8x8Round;
     }
 
 }
@@ -42,7 +67,7 @@ namespace {
 namespace iqo {
 
     template<>
-    class LinearResizerImpl<ArchAVX512> : public ILinearResizerImpl
+    class LinearResizerImpl<ArchNEON> : public ILinearResizerImpl
     {
     public:
         //! Destructor
@@ -88,8 +113,8 @@ namespace iqo {
             m_NumCoefsY = 2,
 
             //! for SIMD
-            kVecStepY  = 32, //!< __m512 x 2
-            kVecStepX  = 32, //!< __m512 x 2
+            kVecStepX  =  8, //!< float32x4_t x 2
+            kVecStepY  = 16, //!< float32x4_t x 4
         };
         int32_t m_SrcW;
         int32_t m_SrcH;
@@ -99,7 +124,7 @@ namespace iqo {
         int32_t m_NumUnrolledCoordsX;
         int32_t m_TablesXWidth;
         int32_t m_NumCoordsY;
-        std::vector<float> m_TablesX_;  //!< Linear table * m_NumCoordsX (unrolled)
+        std::vector<float> m_TablesX_;  //!< m_TablesXWidth * m_NumCoordsX (unrolled)
         float * m_TablesX;              //!< aligned
         std::vector<float> m_TablesY;   //!< Linear table * m_NumCoordsY
         std::vector<int32_t> m_IndicesX;
@@ -107,25 +132,21 @@ namespace iqo {
     };
 
     template<>
-    bool LinearResizerImpl_hasFeature<ArchAVX512>()
+    bool LinearResizerImpl_hasFeature<ArchNEON>()
     {
         HWCap cap;
-        return cap.hasAVX512F()
-            && cap.hasAVX512VL()
-            && cap.hasAVX512BW()
-            && cap.hasAVX512DQ()
-            && cap.hasAVX512CD();
+        return cap.hasNEON();
     }
 
     template<>
-    ILinearResizerImpl * LinearResizerImpl_new<ArchAVX512>()
+    ILinearResizerImpl * LinearResizerImpl_new<ArchNEON>()
     {
-        return new LinearResizerImpl<ArchAVX512>();
+        return new LinearResizerImpl<ArchNEON>();
     }
 
 
     // Constructor
-    void LinearResizerImpl<ArchAVX512>::init(
+    void LinearResizerImpl<ArchNEON>::init(
         size_t srcW, size_t srcH,
         size_t dstW, size_t dstH
     ) {
@@ -212,7 +233,7 @@ namespace iqo {
         }
     }
 
-    void LinearResizerImpl<ArchAVX512>::resize(
+    void LinearResizerImpl<ArchNEON>::resize(
         size_t srcSt, const uint8_t * src,
         size_t dstSt, uint8_t * __restrict dst
     ) {
@@ -282,7 +303,7 @@ namespace iqo {
     //! @param src    A row of source
     //! @param dst    A row of destination (multiplied by kBias)
     //! @param srcOY  The origin of current line
-    void LinearResizerImpl<ArchAVX512>::resizeYborder(
+    void LinearResizerImpl<ArchNEON>::resizeYborder(
         ptrdiff_t srcSt, const uint8_t * src,
         int32_t dstW, float * __restrict dst,
         int32_t srcOY
@@ -299,41 +320,55 @@ namespace iqo {
     //! @param dst    A row of destination
     //! @param srcOY  The origin of current line
     //! @param coefs  The coefficients
-    void LinearResizerImpl<ArchAVX512>::resizeYmain(
+    void LinearResizerImpl<ArchNEON>::resizeYmain(
         ptrdiff_t srcSt, const uint8_t * src,
         int32_t dstW, float * __restrict dst,
         int32_t srcOY,
         const float * coefs
     ) {
-        int32_t numCoefsY = m_NumCoefsY;
         int32_t vecLen = alignFloor<int32_t>(dstW, kVecStepY);
+        int32_t numCoefsY = m_NumCoefsY;
 
         for ( int32_t dstX = 0; dstX < vecLen; dstX += kVecStepY ) {
-            //     nume         = 0;
-            __m512 f32x16Nume0  = _mm512_setzero_ps();
-            __m512 f32x16Nume1  = _mm512_setzero_ps();
+            //          nume       = 0;
+            float32x4_t f32x4Nume0 = vdupq_n_f32(0);
+            float32x4_t f32x4Nume1 = vdupq_n_f32(0);
+            float32x4_t f32x4Nume2 = vdupq_n_f32(0);
+            float32x4_t f32x4Nume3 = vdupq_n_f32(0);
 
             for ( int32_t i = 0; i < numCoefsY; ++i ) {
-                int32_t srcY = srcOY + i;
+                int32_t     srcY        = srcOY + i;
 
-                //      coef        = coefs[i];
-                __m512  f32x16Coef  = _mm512_set1_ps(coefs[i]);
+                //          coef        = coefs[i];
+                float32x4_t f32x4Coef   = vdupq_n_f32(coefs[i]);
 
-                //      nume       += src[dstX + srcSt*srcY] * coef;
-                __m256i u8x32Src    = _mm256_loadu_si256((const __m256i *)&src[dstX + srcSt*srcY]);
-                __m128i u8x16Src0   = _mm256_castsi256_si128(u8x32Src);
-                __m128i u8x16Src1   = _mm256_extracti128_si256(u8x32Src, 1);
-                __m512  f32x16Src0  = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src0));
-                __m512  f32x16Src1  = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src1));
-                f32x16Nume0 = _mm512_fmadd_ps(f32x16Src0, f32x16Coef, f32x16Nume0);
-                f32x16Nume1 = _mm512_fmadd_ps(f32x16Src1, f32x16Coef, f32x16Nume1);
+                //          nume       += src[dstX + srcSt*srcY] * coef;
+                uint8x16_t  u8x16Src    = vld1q_u8(&src[dstX + srcSt*srcY]);
+                uint16x8_t  u16x8Src0   = vmovl_u8(vget_low_u8(u8x16Src));
+                uint16x8_t  u16x8Src1   = vmovl_u8(vget_high_u8(u8x16Src));
+                uint32x4_t  u32x4Src0   = vmovl_u16(vget_low_u16(u16x8Src0));
+                uint32x4_t  u32x4Src1   = vmovl_u16(vget_high_u16(u16x8Src0));
+                uint32x4_t  u32x4Src2   = vmovl_u16(vget_low_u16(u16x8Src1));
+                uint32x4_t  u32x4Src3   = vmovl_u16(vget_high_u16(u16x8Src1));
+                float32x4_t f32x4Src0   = vcvtq_f32_u32(u32x4Src0);
+                float32x4_t f32x4Src1   = vcvtq_f32_u32(u32x4Src1);
+                float32x4_t f32x4Src2   = vcvtq_f32_u32(u32x4Src2);
+                float32x4_t f32x4Src3   = vcvtq_f32_u32(u32x4Src3);
+                f32x4Nume0 = vmlaq_f32(f32x4Nume0, f32x4Src0, f32x4Coef);
+                f32x4Nume1 = vmlaq_f32(f32x4Nume1, f32x4Src1, f32x4Coef);
+                f32x4Nume2 = vmlaq_f32(f32x4Nume2, f32x4Src2, f32x4Coef);
+                f32x4Nume3 = vmlaq_f32(f32x4Nume3, f32x4Src3, f32x4Coef);
             }
 
             // dst[dstX] = nume;
-            __m512 f32x16Dst0 = f32x16Nume0;
-            __m512 f32x16Dst1 = f32x16Nume1;
-            _mm512_storeu_ps(&dst[dstX +  0], f32x16Dst0);
-            _mm512_storeu_ps(&dst[dstX + 16], f32x16Dst1);
+            float32x4_t f32x4Dst0 = f32x4Nume0;
+            float32x4_t f32x4Dst1 = f32x4Nume1;
+            float32x4_t f32x4Dst2 = f32x4Nume2;
+            float32x4_t f32x4Dst3 = f32x4Nume3;
+            vst1q_f32(&dst[dstX +  0], f32x4Dst0);
+            vst1q_f32(&dst[dstX +  4], f32x4Dst1);
+            vst1q_f32(&dst[dstX +  8], f32x4Dst2);
+            vst1q_f32(&dst[dstX + 12], f32x4Dst3);
         }
 
         for ( int32_t dstX = vecLen; dstX < dstW; dstX++ ) {
@@ -349,12 +384,12 @@ namespace iqo {
         }
     }
 
-    void LinearResizerImpl<ArchAVX512>::resizeX(const float * src, uint8_t * __restrict dst)
+    void LinearResizerImpl<ArchNEON>::resizeX(const float * src, uint8_t * __restrict dst)
     {
         if ( m_SrcW == m_DstW ) {
             int32_t dstW = m_DstW;
             for ( int32_t dstX = 0; dstX < dstW; dstX++ ) {
-                dst[dstX] = cvt_roundss_su8(src[dstX]);
+                dst[dstX] = cvt_roundf32_u8(src[dstX]);
             }
             return;
         }
@@ -378,7 +413,7 @@ namespace iqo {
     //! @param dst    A row of destination
     //! @param begin  Position of a first pixel
     //! @param end    Position of next of a last pixel
-    void LinearResizerImpl<ArchAVX512>::resizeXborder(
+    void LinearResizerImpl<ArchNEON>::resizeXborder(
         const float * src, uint8_t * __restrict dst,
         int32_t mainBegin, int32_t mainEnd,
         int32_t begin, int32_t end
@@ -394,11 +429,11 @@ namespace iqo {
             float   sum   = 0;
 
             if ( dstX < mainBegin ) {
-                dst[dstX] = cvt_roundss_su8(src[0]);
+                dst[dstX] = cvt_roundf32_u8(src[0]);
                 continue;
             }
             if ( mainEnd <= dstX ) {
-                dst[dstX] = cvt_roundss_su8(src[srcW - 1]);
+                dst[dstX] = cvt_roundf32_u8(src[srcW - 1]);
                 continue;
             }
 
@@ -410,7 +445,7 @@ namespace iqo {
                 iCoef += kVecStepX;
             }
 
-            dst[dstX] = cvt_roundss_su8(sum);
+            dst[dstX] = cvt_roundf32_u8(sum);
         }
     }
 
@@ -420,7 +455,7 @@ namespace iqo {
     //! @param dst    A row of destination
     //! @param begin  Position of a first pixel
     //! @param end    Position of next of a last pixel
-    void LinearResizerImpl<ArchAVX512>::resizeXmain(
+    void LinearResizerImpl<ArchNEON>::resizeXmain(
         const float * src, uint8_t * __restrict dst,
         int32_t begin, int32_t end
     ) {
@@ -432,33 +467,37 @@ namespace iqo {
 
         ptrdiff_t iCoef = begin / kVecStepX % m_NumUnrolledCoordsX * tableWidth;
         for ( int32_t dstX = begin; dstX < end; dstX += kVecStepX ) {
-            //      nume            = 0;
-            __m512  f32x16Nume0     = _mm512_setzero_ps();
-            __m512  f32x16Nume1     = _mm512_setzero_ps();
-            //      srcOX           = int32_t(floor((dstX+0.5) / scale - 0.5));
-            __m512i s32x16SrcOX0    = _mm512_loadu_si512((const __m512i*)&indices[dstX +  0]);
-            __m512i s32x16SrcOX1    = _mm512_loadu_si512((const __m512i*)&indices[dstX + 16]);
+            //          nume        = 0;
+            float32x4_t f32x4Nume0  = vdupq_n_f32(0);
+            float32x4_t f32x4Nume1  = vdupq_n_f32(0);
+            //          srcOX       = int32_t(floor((dstX+0.5) / scale - 0.5));
+            int32x4_t   s32x4SrcOX0 = vld1q_s32(&indices[dstX + 0]);
+            int32x4_t   s32x4SrcOX1 = vld1q_s32(&indices[dstX + 4]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
-                //      srcX            = srcOX + i;
-                __m512i s32x16Offset    = _mm512_set1_epi32(i);
-                __m512i s32x16SrcX0     = _mm512_add_epi32(s32x16SrcOX0, s32x16Offset);
-                __m512i s32x16SrcX1     = _mm512_add_epi32(s32x16SrcOX1, s32x16Offset);
+                //           srcX        = srcOX + i;
+                int32x4_t    s32x4Offset = vdupq_n_s32(i);
+                int32x4_t    s32x4SrcX0  = vaddq_s32(s32x4SrcOX0, s32x4Offset);
+                int32x4_t    s32x4SrcX1  = vaddq_s32(s32x4SrcOX1, s32x4Offset);
 
-                //      nume           += src[srcX] * coefs[iCoef];
-                __m512  s32x16Src0      = _mm512_i32gather_ps(s32x16SrcX0, src, sizeof(float));
-                __m512  s32x16Src1      = _mm512_i32gather_ps(s32x16SrcX1, src, sizeof(float));
-                __m512  f32x16Coefs0    = _mm512_load_ps(&coefs[iCoef +  0]);
-                __m512  f32x16Coefs1    = _mm512_load_ps(&coefs[iCoef + 16]);
-                f32x16Nume0 = _mm512_fmadd_ps(s32x16Src0, f32x16Coefs0, f32x16Nume0);
-                f32x16Nume1 = _mm512_fmadd_ps(s32x16Src1, f32x16Coefs1, f32x16Nume1);
+                //           iNume      += src[srcX] * coefs[iCoef];
+                float32x4_t  f32x4Src0   = gather(src, s32x4SrcX0);
+                float32x4_t  f32x4Src1   = gather(src, s32x4SrcX1);
+                float32x4_t  f32x4Coefs0 = vld1q_f32(&coefs[iCoef + 0]);
+                float32x4_t  f32x4Coefs1 = vld1q_f32(&coefs[iCoef + 4]);
+
+                // nume   += iNume;
+                f32x4Nume0 = vmlaq_f32(f32x4Nume0, f32x4Src0, f32x4Coefs0);
+                f32x4Nume1 = vmlaq_f32(f32x4Nume1, f32x4Src1, f32x4Coefs1);
 
                 iCoef += kVecStepX;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(nume));
-            __m256i u8x32Dst = cvt_roundps_epu8(f32x16Nume0, f32x16Nume1);
-            _mm256_storeu_si256((__m256i*)&dst[dstX], u8x32Dst);
+            float32x4_t  f32x4Dst0     = f32x4Nume0;
+            float32x4_t  f32x4Dst1     = f32x4Nume1;
+            uint8x8_t    u8x8Dst       = cvt_roundf32_u8(f32x4Dst0, f32x4Dst1);
+            vst1_u8(&dst[dstX], u8x8Dst);
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
@@ -474,13 +513,13 @@ namespace iqo {
 namespace iqo {
 
     template<>
-    bool LinearResizerImpl_hasFeature<ArchAVX512>()
+    bool LinearResizerImpl_hasFeature<ArchNEON>()
     {
         return false;
     }
 
     template<>
-    ILinearResizerImpl * LinearResizerImpl_new<ArchAVX512>()
+    ILinearResizerImpl * LinearResizerImpl_new<ArchNEON>()
     {
         return NULL;
     }

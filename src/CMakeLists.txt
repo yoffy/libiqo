@@ -10,6 +10,7 @@ add_library(iqo IQOHWCap.cpp
                 IQOLinearResizerImpl_SSE4_1.cpp
                 IQOLinearResizerImpl_AVX2FMA.cpp
                 IQOLinearResizerImpl_AVX512.cpp
+                IQOLinearResizerImpl_NEON.cpp
                 IQOLanczosResizer.cpp
                 IQOLanczosResizerImpl_Generic.cpp
                 IQOLanczosResizerImpl_SSE4_1.cpp
@@ -84,6 +85,7 @@ if ( CMAKE_COMPILER_IS_GNUCXX OR ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang") )
     CHECK_CXX_COMPILER_FLAG("-march=armv7-a -mfpu=neon" COMPILER_SUPPORTS_MARCH_ARMV7_A_NEON)
     if ( COMPILER_SUPPORTS_MARCH_ARMV7_A_NEON )
         set_property(SOURCE IQOAreaResizerImpl_NEON.cpp     APPEND_STRING PROPERTY COMPILE_FLAGS "-march=armv7-a -mfpu=neon")
+        set_property(SOURCE IQOLinearResizerImpl_NEON.cpp   APPEND_STRING PROPERTY COMPILE_FLAGS "-march=armv7-a -mfpu=neon")
         set_property(SOURCE IQOLanczosResizerImpl_NEON.cpp  APPEND_STRING PROPERTY COMPILE_FLAGS "-march=armv7-a -mfpu=neon")
     endif()
 endif()

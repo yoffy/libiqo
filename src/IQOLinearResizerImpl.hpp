@@ -73,12 +73,12 @@ namespace iqo {
     template<> bool LinearResizerImpl_hasFeature<ArchSSE4_1>();
     template<> bool LinearResizerImpl_hasFeature<ArchAVX2FMA>();
     template<> bool LinearResizerImpl_hasFeature<ArchAVX512>();
-    //template<> bool LinearResizerImpl_hasFeature<ArchNEON>();
+    template<> bool LinearResizerImpl_hasFeature<ArchNEON>();
     template<> ILinearResizerImpl * LinearResizerImpl_new<ArchGeneric>();
     template<> ILinearResizerImpl * LinearResizerImpl_new<ArchSSE4_1>();
     template<> ILinearResizerImpl * LinearResizerImpl_new<ArchAVX2FMA>();
     template<> ILinearResizerImpl * LinearResizerImpl_new<ArchAVX512>();
-    //template<> ILinearResizerImpl * LinearResizerImpl_new<ArchNEON>();
+    template<> ILinearResizerImpl * LinearResizerImpl_new<ArchNEON>();
 
 
     //! @brief Set Linear table

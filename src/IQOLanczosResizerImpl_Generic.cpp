@@ -355,7 +355,7 @@ namespace iqo {
         int dstSum = 0;
 
         for ( size_t i = 0; i < numCoefs; ++i ) {
-            dst[i] = int16_t(round(srcBegin[i] * bias / srcSum));
+            dst[i] = int16_t(round(srcBegin[i] * float(bias) / srcSum));
             dstSum += dst[i];
         }
         while ( dstSum < k1_0 ) {

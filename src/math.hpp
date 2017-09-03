@@ -104,7 +104,7 @@ namespace iqo {
                 newDY   /= newGCD;
                 newDX   /= newGCD;
                 m_X  = ptrdiff_t(newNume % newDX);
-                m_X  = (m_X < 0) ? m_X + newDX : m_X;
+                m_X  = (m_X < 0) ? ptrdiff_t(m_X + newDX) : m_X;
                 m_DX = ptrdiff_t(newDX);
                 m_DY = ptrdiff_t(newDY);
             }

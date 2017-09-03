@@ -455,7 +455,7 @@ namespace iqo {
             //      nume        = 0;
             __m128  f32x4Nume0  = _mm_setzero_ps();
             __m128  f32x4Nume1  = _mm_setzero_ps();
-            //      srcOX       = floor(dstX / scale) + 1;
+            //      srcOX       = int32_t(floor((dstX+0.5) / scale - 0.5));
             __m128i s32x4SrcOX0 = _mm_loadu_si128((const __m128i*)&indices[dstX + 0]);
             __m128i s32x4SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX + 4]);
 
