@@ -301,7 +301,7 @@ namespace iqo {
 
                 //      nume       += src[dstX + srcSt*srcY] * coef;
                 __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                _mm_prefetch(&src[dstX + srcSt*(srcY + numCoefsY)], _MM_HINT_T2);
+                _mm_prefetch((const char *)&src[dstX + srcSt*(srcY + numCoefsY)], _MM_HINT_T2);
                 __m128i u8x8Src0    = u8x16Src;
                 __m128i u8x8Src1    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 2, 3, 2));
                 __m256  f32x8Src0   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src0));

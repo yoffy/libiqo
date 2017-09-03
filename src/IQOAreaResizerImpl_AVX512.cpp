@@ -296,7 +296,7 @@ namespace iqo {
 
                 //      nume       += src[dstX + srcSt*srcY] * coef;
                 __m256i u8x32Src    = _mm256_loadu_si256((const __m256i *)&src[dstX + srcSt*srcY]);
-                _mm_prefetch(&src[dstX + srcSt*(srcY + numCoefsY)], _MM_HINT_T2);
+                _mm_prefetch((const char *)&src[dstX + srcSt*(srcY + numCoefsY)], _MM_HINT_T2);
                 __m128i u8x16Src0   = _mm256_castsi256_si128(u8x32Src);
                 __m128i u8x16Src1   = _mm256_extracti128_si256(u8x32Src, 1);
                 __m512  f32x16Src0  = _mm512_cvtepi32_ps(_mm512_cvtepu8_epi32(u8x16Src0));
