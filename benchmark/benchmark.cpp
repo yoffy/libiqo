@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstddef>
 #include <cstring>
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -891,7 +892,7 @@ int main(int argc, char *argv[])
     long dstW = std::atol(args["ow"].c_str());
     long dstH = std::atol(args["oh"].c_str());
     int degree = 2;
-    int numCycles = 1000;
+    int numCycles = 256;
 
     if (   srcW == 0 || srcH == 0
         || dstW == 0 || dstH == 0 )
@@ -1013,9 +1014,10 @@ int main(int argc, char *argv[])
     fillRandom(srcU, srcSizeU);
     fillRandom(srcV, srcSizeU);
 
-    auto startTime = std::chrono::high_resolution_clock::now();
+    double minTime = 9999999999;
 
     for ( int i = 0; i < numCycles; i++ ) {
+        auto startTime = std::chrono::high_resolution_clock::now();
         int status = resizer->resize(
             srcW, srcH, srcStX, srcY, srcStX / 2, srcU, srcV,
             dstW, dstH, dstStX, dstY, dstStX / 2, dstU, dstV
@@ -1023,11 +1025,12 @@ int main(int argc, char *argv[])
         if ( status ) {
             return EINVAL;
         }
+        auto endTime = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsedTime = endTime - startTime;
+        minTime = std::min(minTime, elapsedTime.count());
     }
 
-    auto endTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsedTime = endTime - startTime;
-    std::printf("  elapsed time: %6.3f secs\n", elapsedTime.count());
+    std::printf("  elapsed time: %8.3f ms/cycle\n", minTime * 1000);
 
     return 0;
 }
