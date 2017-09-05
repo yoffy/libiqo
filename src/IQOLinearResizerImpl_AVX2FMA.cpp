@@ -97,8 +97,8 @@ namespace iqo {
             m_NumCoefsY = 2,
 
             //! for SIMD
-            kVecStepX   = 16, //!< __m256 x 2
-            kVecStepY   = 16, //!< __m256 x 2
+            kVecStepX   = 16, //!< float32x8 x 2
+            kVecStepY   = 32, //!< float32x8 x 4
         };
         int32_t m_SrcW;
         int32_t m_SrcH;
@@ -317,6 +317,8 @@ namespace iqo {
             //     nume         = 0;
             __m256 f32x8Nume0   = _mm256_setzero_ps();
             __m256 f32x8Nume1   = _mm256_setzero_ps();
+            __m256 f32x8Nume2   = _mm256_setzero_ps();
+            __m256 f32x8Nume3   = _mm256_setzero_ps();
 
             for ( int32_t i = 0; i < numCoefsY; ++i ) {
                 int32_t srcY = srcOY + i;
@@ -325,20 +327,29 @@ namespace iqo {
                 __m256  f32x8Coef   = _mm256_set1_ps(coefs[i]);
 
                 //      nume       += src[dstX + srcSt*srcY] * coef;
-                __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
-                __m128i u8x8Src0    = u8x16Src;
-                __m128i u8x8Src1    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 2, 3, 2));
+                __m256i u8x32Src    = _mm256_loadu_si256((const __m256i *)&src[dstX + srcSt*srcY]);
+                _mm_prefetch((const char *)&src[dstX + srcSt*(srcY + numCoefsY)], _MM_HINT_T2);
+                __m128i u8x16Src0   = _mm256_castsi256_si128(u8x32Src);
+                __m128i u8x16Src1   = _mm256_extractf128_si256(u8x32Src, 1);
+                __m128i u8x8Src0    = u8x16Src0;
+                __m128i u8x8Src1    = _mm_shuffle_epi32(u8x16Src0, _MM_SHUFFLE(3, 2, 3, 2));
+                __m128i u8x8Src2    = u8x16Src1;
+                __m128i u8x8Src3    = _mm_shuffle_epi32(u8x16Src1, _MM_SHUFFLE(3, 2, 3, 2));
                 __m256  f32x8Src0   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src0));
                 __m256  f32x8Src1   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src1));
+                __m256  f32x8Src2   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src2));
+                __m256  f32x8Src3   = _mm256_cvtepi32_ps(_mm256_cvtepu8_epi32(u8x8Src3));
                 f32x8Nume0 = _mm256_fmadd_ps(f32x8Src0, f32x8Coef, f32x8Nume0);
                 f32x8Nume1 = _mm256_fmadd_ps(f32x8Src1, f32x8Coef, f32x8Nume1);
+                f32x8Nume2 = _mm256_fmadd_ps(f32x8Src2, f32x8Coef, f32x8Nume2);
+                f32x8Nume3 = _mm256_fmadd_ps(f32x8Src3, f32x8Coef, f32x8Nume3);
             }
 
             // dst[dstX] = nume;
-            __m256 f32x8Dst0 = f32x8Nume0;
-            __m256 f32x8Dst1 = f32x8Nume1;
-            _mm256_storeu_ps(&dst[dstX + 0], f32x8Dst0);
-            _mm256_storeu_ps(&dst[dstX + 8], f32x8Dst1);
+            _mm256_storeu_ps(&dst[dstX +  0], f32x8Nume0);
+            _mm256_storeu_ps(&dst[dstX +  8], f32x8Nume1);
+            _mm256_storeu_ps(&dst[dstX + 16], f32x8Nume2);
+            _mm256_storeu_ps(&dst[dstX + 24], f32x8Nume3);
         }
 
         for ( int32_t dstX = vecLen; dstX < dstW; dstX++ ) {
