@@ -55,7 +55,7 @@ namespace {
         // HFHEHDHC LFLELDLC H7H6H5H4 L7L6L5L4 HBHAH9H8 LBLAL9L8 H3H2H1H0 L3L2L1L0
         __m256i u8x32P = _mm256_packus_epi16(u16x16P0, u16x16P1);
         __m256i u32x8Table = _mm256_set_epi32(7, 3, 5, 1, 6, 2, 4, 0);
-        __m256i u8x32  = _mm256_permutevar8x32_epi32(u32x8Table, u8x32P);
+        __m256i u8x32  = _mm256_permutevar8x32_epi32(u8x32P, u32x8Table);
         return u8x32;
     }
 

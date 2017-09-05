@@ -548,56 +548,24 @@ namespace iqo {
         ptrdiff_t tableSize = tableWidth * m_NumUnrolledCoordsX;
         int32_t numCoefsX = m_NumCoefsX;
 
-        const int32x4_t s32x4k0   = vdupq_n_s32(0);
-        const int32x4_t s32x4SrcW = vdupq_n_s32(m_SrcW);
-        ptrdiff_t iCoef = begin / kVecStepX % m_NumUnrolledCoordsX * tableWidth;
-        for ( ptrdiff_t dstX = begin; dstX < end; dstX += kVecStepX ) {
-            // nume             = 0;
-            float32x4_t f32x4Nume0  = vdupq_n_f32(0);
-            float32x4_t f32x4Nume1  = vdupq_n_f32(0);
-            // deno             = 0;
-            float32x4_t f32x4Deno0  = vdupq_n_f32(0);
-            float32x4_t f32x4Deno1  = vdupq_n_f32(0);
-            // srcOX            = floor(dstX / scale) + 1;
-            int32x4_t s32x4SrcOX0 = vld1q_s32(&indices[dstX + 0]);
-            int32x4_t s32x4SrcOX1 = vld1q_s32(&indices[dstX + 4]);
+        for ( ptrdiff_t dstX = begin; dstX < end; ++dstX ) {
+            ptrdiff_t iCoef = (dstX % kVecStepX) + (dstX / kVecStepX % m_NumUnrolledCoordsX * tableWidth);
+            //      srcOX = floor(dstX / scale) + 1;
+            int32_t srcOX = indices[dstX];
+            float nume = 0;
+            float deno = 0;
 
-            for ( ptrdiff_t i = 0; i < numCoefsX; ++i ) {
-                // srcX             = srcOX - numCoefsOn2 + i;
-                int32x4_t s32x4Offset = vdupq_n_s32(i - numCoefsOn2);
-                int32x4_t s32x4SrcX0  = vaddq_s32(s32x4SrcOX0, s32x4Offset);
-                int32x4_t s32x4SrcX1  = vaddq_s32(s32x4SrcOX1, s32x4Offset);
-                // if ( 0 <= srcX && srcX < m_SrcW )
-                uint32x4_t u32x4Mask0 = vandq_u32(vcleq_s32(s32x4k0, s32x4SrcX0), vcltq_s32(s32x4SrcX0, s32x4SrcW));
-                uint32x4_t u32x4Mask1 = vandq_u32(vcleq_s32(s32x4k0, s32x4SrcX1), vcltq_s32(s32x4SrcX1, s32x4SrcW));
-
-                //           iNume      += src[srcX] * coefs[iCoef];
-                float32x4_t  f32x4Src0   = mask_gather(src, s32x4SrcX0, u32x4Mask0);
-                float32x4_t  f32x4Src1   = mask_gather(src, s32x4SrcX1, u32x4Mask1);
-                float32x4_t  f32x4Coefs0 = vld1q_f32(&coefs[iCoef + 0]);
-                float32x4_t  f32x4Coefs1 = vld1q_f32(&coefs[iCoef + 4]);
-                // nume   += iNume;
-                f32x4Nume0 = vmlaq_f32(f32x4Nume0, f32x4Src0, f32x4Coefs0);
-                f32x4Nume1 = vmlaq_f32(f32x4Nume1, f32x4Src1, f32x4Coefs1);
-                // deno   += coefs[iCoef];
-                f32x4Deno0 = vaddq_f32(f32x4Deno0, f32x4Coefs0);
-                f32x4Deno1 = vaddq_f32(f32x4Deno1, f32x4Coefs1);
-
+            for ( int32_t i = 0; i < m_NumCoefsX; ++i ) {
+                int32_t srcX = srcOX - numCoefsOn2 + i;
+                if ( 0 <= srcX && srcX < m_SrcW ) {
+                    float coef = coefs[i];
+                    nume += src[srcX] * coef;
+                    deno += coef;
+                }
                 iCoef += kVecStepX;
             }
 
-            // dst[dstX] = clamp<int>(0, 255, round(nume / deno));
-            float32x4_t  f32x4RcpDeno0 = rcp16(f32x4Deno0);
-            float32x4_t  f32x4RcpDeno1 = rcp16(f32x4Deno1);
-            float32x4_t  f32x4Dst0     = vmulq_f32(f32x4Nume0, f32x4RcpDeno0);
-            float32x4_t  f32x4Dst1     = vmulq_f32(f32x4Nume1, f32x4RcpDeno1);
-            uint8x8_t    u8x8Dst       = cvt_roundf32_u8(f32x4Dst0, f32x4Dst1);
-            vst1_u8(&dst[dstX], u8x8Dst);
-
-            // iCoef = dstX % tableSize;
-            if ( iCoef == tableSize ) {
-                iCoef = 0;
-            }
+            dst[dstX] = cvt_roundss_su8(nume/deno);
         }
     }
 

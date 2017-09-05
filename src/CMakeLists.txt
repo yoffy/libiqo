@@ -1,3 +1,5 @@
+include(CheckCXXSymbolExists)
+
 add_library(iqo IQOHWCap.cpp
                 IQOAreaResizer.cpp
                 IQOAreaResizerImpl_Generic.cpp
@@ -65,9 +67,9 @@ elseif ( MSVC )
     # check to support Skylake-X (not KNL)
     set(CMAKE_REQUIRED_FLAGS    "/arch:AVX512")
     set(CMAKE_REQUIRED_INCLUDES "immintrin.h")
-    check_function_exists(_mm512_cvt_roundps_epi32 COMPILER_HAVE_MM512_CVT_ROUNDPS_EPI32)
-    set(CMAKE_REQUIRED_FLAGS    "")
-    set(CMAKE_REQUIRED_INCLUDES "")
+    # workaround: It depend to be defined macro "_mm512_cvt_roundps_epi32" in zmmintrin.h,
+    #             because check_function_exists and check_cxx_symbol_exists can not determine builtin function.
+    check_cxx_symbol_exists(_mm512_cvt_roundps_epi32 "immintrin.h" COMPILER_HAVE_MM512_CVT_ROUNDPS_EPI32)
     if ( COMPILER_HAVE_MM512_CVT_ROUNDPS_EPI32 )
         CHECK_CXX_COMPILER_FLAG("/arch:AVX512"          COMPILER_SUPPORTS_ARCH_AVX512)
         if ( COMPILER_SUPPORTS_ARCH_AVX512 )

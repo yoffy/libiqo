@@ -13,6 +13,20 @@
 
 namespace {
 
+    //! convert pixel scale of coordinate
+    //!
+    //! @see iqo::setLinearTable
+    int32_t convertCoordinate(int32_t fromX, int32_t fromLen, int32_t toLen)
+    {
+        // When magnification (fromLen < toLen), toX is grater than 0.
+        // In this case, no calculate border ceil(toX) pixels.
+        //
+        // When reducing (fromLen > toLen), toX between -0.5 to 0.0.
+        // In this case, no calculate border 1 pixel by ceil(fabs(toX))
+        double  toX = (0.5 + fromX) * toLen / fromLen - 0.5;
+        return int32_t(std::ceil(std::fabs(toX)));
+    }
+
     //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
     #define IQO_INSERT_MEM_PS(srcPtr, s32x4Indices, srcField, f32x4Dst, dstField) \
         _mm_insert_ps( \
@@ -94,6 +108,9 @@ namespace iqo {
             const float * src, uint8_t * dst,
             int32_t begin, int32_t end
         );
+
+        //! get index of m_TablesX from coordinate of destination
+        ptrdiff_t getCoefXIndex(int32_t dstX);
 
         enum {
             m_NumCoefsX = 2,
@@ -241,13 +258,13 @@ namespace iqo {
         }
 
         const float * tablesY = &m_TablesY[0];
-        double        fMainBegin = std::ceil(0.5 * dstH / srcH - 0.5);
-        ptrdiff_t     mainBegin  = clamp<ptrdiff_t>(0, dstH, ptrdiff_t(fMainBegin));
-        ptrdiff_t     mainEnd    = clamp<ptrdiff_t>(0, dstH, dstH - mainBegin);
+        int32_t mainBegin0 = convertCoordinate(srcH, dstH, 0);
+        int32_t mainBegin  = clamp<int32_t>(0, dstH, mainBegin0);
+        int32_t mainEnd    = clamp<int32_t>(0, dstH, dstH - mainBegin);
 
         // border pixels
 #pragma omp parallel for
-        for ( ptrdiff_t dstY = 0; dstY < mainBegin; ++dstY ) {
+        for ( int32_t dstY = 0; dstY < mainBegin; ++dstY ) {
             float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = 0;
             resizeYborder(
@@ -259,7 +276,7 @@ namespace iqo {
 
         // main loop
 #pragma omp parallel for
-        for ( ptrdiff_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
+        for ( int32_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
             float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(floor((dstY+0.5) * srcH/dstH - 0.5));
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
@@ -273,7 +290,7 @@ namespace iqo {
 
         // border pixels
 #pragma omp parallel for
-        for ( ptrdiff_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
+        for ( int32_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
             float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = srcH - 1;
             resizeYborder(
@@ -295,7 +312,7 @@ namespace iqo {
         int32_t dstW, float * __restrict dst,
         int32_t srcOY
     ) {
-        for ( ptrdiff_t dstX = 0; dstX < dstW; ++dstX ) {
+        for ( int32_t dstX = 0; dstX < dstW; ++dstX ) {
             dst[dstX] = src[dstX + srcSt * srcOY];
         }
     }
@@ -380,8 +397,8 @@ namespace iqo {
         }
 
         int32_t dstW        = m_DstW;
-        double  fMainBegin  = std::ceil(0.5 * dstW / m_SrcW - 0.5);
-        int32_t mainBegin   = clamp<int32_t>(0, dstW, int32_t(fMainBegin));
+        int32_t mainBegin0  = convertCoordinate(m_SrcW, dstW, 0);
+        int32_t mainBegin   = clamp<int32_t>(0, dstW, mainBegin0);
         int32_t mainEnd     = clamp<int32_t>(0, dstW, dstW - mainBegin);
         int32_t vecBegin    = alignCeil<int32_t>(mainBegin, kVecStepX);
         int32_t vecLen      = alignFloor<int32_t>(mainEnd - vecBegin, kVecStepX);
@@ -405,7 +422,6 @@ namespace iqo {
     ) {
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
-        ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
         int32_t numCoefsX = m_NumCoefsX;
         int32_t srcW = m_SrcW;
 
@@ -422,7 +438,7 @@ namespace iqo {
                 continue;
             }
 
-            ptrdiff_t iCoef = (dstX % kVecStepX) + (dstX / kVecStepX % m_NumUnrolledCoordsX * tableWidth);
+            ptrdiff_t iCoef = getCoefXIndex(dstX);
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 float   coef = coefs[iCoef];
                 int32_t srcX = srcOX + i;
@@ -450,7 +466,7 @@ namespace iqo {
         ptrdiff_t tableSize = tableWidth * m_NumUnrolledCoordsX;
         int32_t numCoefsX = m_NumCoefsX;
 
-        ptrdiff_t iCoef = begin / kVecStepX % m_NumUnrolledCoordsX * tableWidth;
+        ptrdiff_t iCoef = getCoefXIndex(begin);
         for ( int32_t dstX = begin; dstX < end; dstX += kVecStepX ) {
             //      nume        = 0;
             __m128  f32x4Nume0  = _mm_setzero_ps();
@@ -491,6 +507,32 @@ namespace iqo {
                 iCoef = 0;
             }
         }
+    }
+
+    //! get index of m_TablesX from coordinate of destination
+    ptrdiff_t LinearResizerImpl<ArchSSE4_1>::getCoefXIndex(int32_t dstX)
+    {
+        //      srcX: ABCA--
+        //            BCAB |- m_NumUnrolledCoordsX
+        //            CABC--
+        //
+        // m_TablesX:
+        //                dstX % kVecStepX
+        //                     |
+        //                  --------
+        //                  |      |
+        //                --A0B0C0A0 .. A3B3C3A3
+        // dstX/kVecStepX-| B0C0A0B0 .. B3C3A3B3
+        //                --C0A0B0C0 .. C3A3B3C3
+        //                  |                  |
+        //                  --------------------
+        //                            |
+        //                     m_TablesXWidth
+        //
+        //
+
+        ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
+        return (dstX % kVecStepX) + (dstX / kVecStepX % m_NumUnrolledCoordsX * tableWidth);
     }
 
 }

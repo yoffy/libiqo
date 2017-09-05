@@ -17,24 +17,6 @@
 
 namespace {
 
-    int getNumberOfProcs()
-    {
-#if defined(_OPENMP)
-        return omp_get_num_procs();
-#else
-        return 1;
-#endif
-    }
-
-    int getThreadNumber()
-    {
-#if defined(_OPENMP)
-        return omp_get_thread_num();
-#else
-        return 0;
-#endif
-    }
-
     //! (uint8_t)min(255, max(0, v))
     __m128i packus_epi16(__m256i v)
     {
@@ -118,7 +100,7 @@ namespace iqo {
 
         enum {
             //! for SIMD
-            kVecStepX   = 16, //!< float32x8 x 2
+            kVecStepX   = 32, //!< float32x8 x 4
             kVecStepY   = 32, //!< float32x8 x 4
         };
         int32_t m_SrcW;
@@ -241,8 +223,8 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * getNumberOfProcs());
-        m_Work.resize(m_SrcW * getNumberOfProcs());
+        m_Work.reserve(m_SrcW * HWCap::getNumberOfProcs());
+        m_Work.resize(m_SrcW * HWCap::getNumberOfProcs());
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
@@ -266,7 +248,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -284,7 +266,7 @@ namespace iqo {
         // border pixels
 #pragma omp parallel for
         for ( ptrdiff_t dstY = 0; dstY < mainBegin; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYborder(
@@ -298,7 +280,7 @@ namespace iqo {
         // main loop
 #pragma omp parallel for
         for ( ptrdiff_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(
@@ -312,7 +294,7 @@ namespace iqo {
         // border pixels
 #pragma omp parallel for
         for ( ptrdiff_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYborder(
@@ -521,55 +503,94 @@ namespace iqo {
         for ( int32_t dstX = begin; dstX < end; dstX += kVecStepX ) {
             //      nume        = 0;
             __m256  f32x8Nume0  = _mm256_setzero_ps();
-            __m256  f32x8Nume8  = _mm256_setzero_ps();
+            __m256  f32x8Nume1  = _mm256_setzero_ps();
+            __m256  f32x8Nume2  = _mm256_setzero_ps();
+            __m256  f32x8Nume3  = _mm256_setzero_ps();
             //      deno        = 0;
             __m256  f32x8Deno0  = _mm256_setzero_ps();
-            __m256  f32x8Deno8  = _mm256_setzero_ps();
+            __m256  f32x8Deno1  = _mm256_setzero_ps();
+            __m256  f32x8Deno2  = _mm256_setzero_ps();
+            __m256  f32x8Deno3  = _mm256_setzero_ps();
             //      srcOX       = floor(dstX / scale) + 1;
-            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX +  0]);
+            __m256i s32x8SrcOX1 = _mm256_loadu_si256((const __m256i*)&indices[dstX +  8]);
+            __m256i s32x8SrcOX2 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 16]);
+            __m256i s32x8SrcOX3 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 24]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 //      srcX        = srcOX - numCoefsOn2 + i;
                 __m256i s32x8Offset = _mm256_set1_epi32(i - numCoefsOn2);
                 __m256i s32x8SrcX0  = _mm256_add_epi32(s32x8SrcOX0, s32x8Offset);
-                __m256i s32x8SrcX8  = _mm256_add_epi32(s32x8SrcOX8, s32x8Offset);
+                __m256i s32x8SrcX1  = _mm256_add_epi32(s32x8SrcOX1, s32x8Offset);
+                __m256i s32x8SrcX2  = _mm256_add_epi32(s32x8SrcOX2, s32x8Offset);
+                __m256i s32x8SrcX3  = _mm256_add_epi32(s32x8SrcOX3, s32x8Offset);
 
                 // if ( 0 <= srcX && srcX < m_SrcW )
                 __m256i s32x8Mask0  = _mm256_andnot_si256(
                     _mm256_cmpgt_epi32(s32x8k0, s32x8SrcX0),    // ~(0 > srcX)
                     _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX0)   // srcW > srcX
                 );
-                __m256i s32x8Mask8  = _mm256_andnot_si256(
-                    _mm256_cmpgt_epi32(s32x8k0, s32x8SrcX8),
-                    _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX8)
+                __m256i s32x8Mask1  = _mm256_andnot_si256(
+                    _mm256_cmpgt_epi32(s32x8k0, s32x8SrcX1),
+                    _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX1)
+                );
+                __m256i s32x8Mask2  = _mm256_andnot_si256(
+                    _mm256_cmpgt_epi32(s32x8k0, s32x8SrcX2),
+                    _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX2)
+                );
+                __m256i s32x8Mask3  = _mm256_andnot_si256(
+                    _mm256_cmpgt_epi32(s32x8k0, s32x8SrcX3),
+                    _mm256_cmpgt_epi32(s32x8SrcW, s32x8SrcX3)
                 );
                 __m256  f32x8Mask0  = _mm256_castsi256_ps(s32x8Mask0);
-                __m256  f32x8Mask8  = _mm256_castsi256_ps(s32x8Mask8);
+                __m256  f32x8Mask1  = _mm256_castsi256_ps(s32x8Mask1);
+                __m256  f32x8Mask2  = _mm256_castsi256_ps(s32x8Mask2);
+                __m256  f32x8Mask3  = _mm256_castsi256_ps(s32x8Mask3);
 
                 //      nume       += src[srcX] * coefs[iCoef];
                 __m256  f32x8Src0   = _mm256_mask_i32gather_ps(
                     _mm256_setzero_ps(), src, s32x8SrcX0, f32x8Mask0, sizeof(float)
                 );
-                __m256  f32x8Src8   = _mm256_mask_i32gather_ps(
-                    _mm256_setzero_ps(), src, s32x8SrcX8, f32x8Mask8, sizeof(float)
+                __m256  f32x8Src1   = _mm256_mask_i32gather_ps(
+                    _mm256_setzero_ps(), src, s32x8SrcX1, f32x8Mask1, sizeof(float)
                 );
-                __m256  f32x8Coefs0 = _mm256_load_ps(&coefs[iCoef + 0]);
-                __m256  f32x8Coefs8 = _mm256_load_ps(&coefs[iCoef + 8]);
+                __m256  f32x8Src2   = _mm256_mask_i32gather_ps(
+                    _mm256_setzero_ps(), src, s32x8SrcX2, f32x8Mask2, sizeof(float)
+                );
+                __m256  f32x8Src3   = _mm256_mask_i32gather_ps(
+                    _mm256_setzero_ps(), src, s32x8SrcX3, f32x8Mask3, sizeof(float)
+                );
+                __m256  f32x8Coefs0 = _mm256_load_ps(&coefs[iCoef +  0]);
+                __m256  f32x8Coefs1 = _mm256_load_ps(&coefs[iCoef +  8]);
+                __m256  f32x8Coefs2 = _mm256_load_ps(&coefs[iCoef + 16]);
+                __m256  f32x8Coefs3 = _mm256_load_ps(&coefs[iCoef + 24]);
                 f32x8Nume0 = _mm256_fmadd_ps(f32x8Src0, f32x8Coefs0, f32x8Nume0);
-                f32x8Nume8 = _mm256_fmadd_ps(f32x8Src8, f32x8Coefs8, f32x8Nume8);
+                f32x8Nume1 = _mm256_fmadd_ps(f32x8Src1, f32x8Coefs1, f32x8Nume1);
+                f32x8Nume2 = _mm256_fmadd_ps(f32x8Src2, f32x8Coefs2, f32x8Nume2);
+                f32x8Nume3 = _mm256_fmadd_ps(f32x8Src3, f32x8Coefs3, f32x8Nume3);
                 // deno   += coefs[iCoef];
                 f32x8Deno0 = _mm256_add_ps(f32x8Deno0, f32x8Coefs0);
-                f32x8Deno8 = _mm256_add_ps(f32x8Deno8, f32x8Coefs8);
+                f32x8Deno1 = _mm256_add_ps(f32x8Deno1, f32x8Coefs1);
+                f32x8Deno2 = _mm256_add_ps(f32x8Deno2, f32x8Coefs2);
+                f32x8Deno3 = _mm256_add_ps(f32x8Deno3, f32x8Coefs3);
 
                 iCoef += kVecStepX;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(nume / deno));
             __m256  f32x8Dst0 = _mm256_div_ps(f32x8Nume0, f32x8Deno0);
-            __m256  f32x8Dst8 = _mm256_div_ps(f32x8Nume8, f32x8Deno8);
-            __m128i u8x16Dst = cvt_roundps_epu8(f32x8Dst0, f32x8Dst8);
-            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
+            __m256  f32x8Dst1 = _mm256_div_ps(f32x8Nume1, f32x8Deno1);
+            __m256  f32x8Dst2 = _mm256_div_ps(f32x8Nume2, f32x8Deno2);
+            __m256  f32x8Dst3 = _mm256_div_ps(f32x8Nume3, f32x8Deno3);
+            __m128i u8x16Dst0 = cvt_roundps_epu8(f32x8Dst0, f32x8Dst1);
+            __m128i u8x16Dst1 = cvt_roundps_epu8(f32x8Dst2, f32x8Dst3);
+            __m256i u8x32Dst  =
+                _mm256_insertf128_si256(_mm256_castsi128_si256(u8x16Dst0), u8x16Dst1, 1);
+            if ( dstX + kVecStepX <= end ) {
+                _mm256_storeu_si256((__m256i*)&dst[dstX], u8x32Dst);
+            } else {
+                memcpy(&dst[dstX], &u8x32Dst, end - dstX);
+            }
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
@@ -599,31 +620,46 @@ namespace iqo {
         for ( int32_t dstX = begin; dstX < end; dstX += kVecStepX ) {
             //      nume        = 0;
             __m256  f32x8Nume0  = _mm256_setzero_ps();
-            __m256  f32x8Nume8  = _mm256_setzero_ps();
+            __m256  f32x8Nume1  = _mm256_setzero_ps();
+            __m256  f32x8Nume2  = _mm256_setzero_ps();
+            __m256  f32x8Nume3  = _mm256_setzero_ps();
             //      srcOX       = floor(dstX / scale) + 1;
-            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX +  0]);
+            __m256i s32x8SrcOX1 = _mm256_loadu_si256((const __m256i*)&indices[dstX +  8]);
+            __m256i s32x8SrcOX2 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 16]);
+            __m256i s32x8SrcOX3 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 24]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 //      srcX        = srcOX - numCoefsOn2 + i;
                 __m256i s32x8Offset = _mm256_set1_epi32(i - numCoefsOn2);
                 __m256i s32x8SrcX0  = _mm256_add_epi32(s32x8SrcOX0, s32x8Offset);
-                __m256i s32x8SrcX8  = _mm256_add_epi32(s32x8SrcOX8, s32x8Offset);
+                __m256i s32x8SrcX1  = _mm256_add_epi32(s32x8SrcOX1, s32x8Offset);
+                __m256i s32x8SrcX2  = _mm256_add_epi32(s32x8SrcOX2, s32x8Offset);
+                __m256i s32x8SrcX3  = _mm256_add_epi32(s32x8SrcOX3, s32x8Offset);
 
                 //      nume        += src[srcX] * coefs[iCoef];
                 __m256  s32x8Src0    = _mm256_i32gather_ps(src, s32x8SrcX0, sizeof(float));
-                __m256  s32x8Src8    = _mm256_i32gather_ps(src, s32x8SrcX8, sizeof(float));
-                __m256  f32x8Coefs0  = _mm256_load_ps(&coefs[iCoef + 0]);
-                __m256  f32x8Coefs8  = _mm256_load_ps(&coefs[iCoef + 8]);
+                __m256  s32x8Src1    = _mm256_i32gather_ps(src, s32x8SrcX1, sizeof(float));
+                __m256  s32x8Src2    = _mm256_i32gather_ps(src, s32x8SrcX2, sizeof(float));
+                __m256  s32x8Src3    = _mm256_i32gather_ps(src, s32x8SrcX3, sizeof(float));
+                __m256  f32x8Coefs0  = _mm256_load_ps(&coefs[iCoef +  0]);
+                __m256  f32x8Coefs1  = _mm256_load_ps(&coefs[iCoef +  8]);
+                __m256  f32x8Coefs2  = _mm256_load_ps(&coefs[iCoef + 16]);
+                __m256  f32x8Coefs3  = _mm256_load_ps(&coefs[iCoef + 24]);
                 f32x8Nume0 = _mm256_fmadd_ps(s32x8Src0, f32x8Coefs0, f32x8Nume0);
-                f32x8Nume8 = _mm256_fmadd_ps(s32x8Src8, f32x8Coefs8, f32x8Nume8);
+                f32x8Nume1 = _mm256_fmadd_ps(s32x8Src1, f32x8Coefs1, f32x8Nume1);
+                f32x8Nume2 = _mm256_fmadd_ps(s32x8Src2, f32x8Coefs2, f32x8Nume2);
+                f32x8Nume3 = _mm256_fmadd_ps(s32x8Src3, f32x8Coefs3, f32x8Nume3);
 
                 iCoef += kVecStepX;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(nume));
-            __m128i u8x16Dst = cvt_roundps_epu8(f32x8Nume0, f32x8Nume8);
-            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
+            __m128i u8x16Dst0 = cvt_roundps_epu8(f32x8Nume0, f32x8Nume1);
+            __m128i u8x16Dst1 = cvt_roundps_epu8(f32x8Nume2, f32x8Nume3);
+            __m256i u8x32Dst  =
+                _mm256_insertf128_si256(_mm256_castsi128_si256(u8x16Dst0), u8x16Dst1, 1);
+            _mm256_storeu_si256((__m256i*)&dst[dstX], u8x32Dst);
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {

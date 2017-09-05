@@ -17,24 +17,6 @@
 
 namespace {
 
-    int getNumberOfProcs()
-    {
-#if defined(_OPENMP)
-        return omp_get_num_procs();
-#else
-        return 1;
-#endif
-    }
-
-    int getThreadNumber()
-    {
-#if defined(_OPENMP)
-        return omp_get_thread_num();
-#else
-        return 0;
-#endif
-    }
-
     //! (uint8_t)min(255, max(0, v))
     __m128i packus_epi16(__m256i v)
     {
@@ -221,8 +203,8 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * getNumberOfProcs());
-        m_Work.resize(m_SrcW * getNumberOfProcs());
+        m_Work.reserve(m_SrcW * HWCap::getNumberOfProcs());
+        m_Work.resize(m_SrcW * HWCap::getNumberOfProcs());
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
@@ -246,7 +228,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -260,7 +242,7 @@ namespace iqo {
         // main loop
 #pragma omp parallel for
         for ( int32_t dstY = 0; dstY < dstH; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(

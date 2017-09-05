@@ -49,7 +49,7 @@ namespace iqo {
 
         inline int64_t lcm(ptrdiff_t a, ptrdiff_t b)
         {
-            return int64_t(a) * b / gcd(a, b);
+            return int64_t(a) / gcd(a, b) * b;
         }
 
         //! floor(a / b)

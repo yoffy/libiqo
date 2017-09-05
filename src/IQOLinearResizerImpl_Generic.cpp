@@ -7,6 +7,20 @@
 
 namespace iqo {
 
+    //! convert pixel scale of coordinate
+    //!
+    //! @see iqo::setLinearTable
+    ptrdiff_t convertCoordinate(ptrdiff_t fromX, ptrdiff_t fromLen, ptrdiff_t toLen)
+    {
+        // When magnification (fromLen < toLen), toX is grater than 0.
+        // In this case, no calculate border ceil(toX) pixels.
+        //
+        // When reducing (fromLen > toLen), toX between -0.5 to 0.0.
+        // In this case, no calculate border 1 pixel by ceil(fabs(toX))
+        double  toX = (0.5 + fromX) * toLen / fromLen - 0.5;
+        return ptrdiff_t(std::ceil(std::fabs(toX)));
+    }
+
     //! @brief Set Linear table
     //! @param srcLen     Number of pixels of the source image
     //! @param dstLen     Number of pixels of the destination image
@@ -225,8 +239,8 @@ namespace iqo {
         ptrdiff_t        tableSize = m_NumTablesY * numCoefs;
         ptrdiff_t        iTable = 0;
         LinearIterator   iSrcOY(dstH, srcH);
-        double           fMainBegin = std::ceil(0.5 * dstH / srcH - 0.5);
-        ptrdiff_t        mainBegin  = clamp<ptrdiff_t>(0, dstH, ptrdiff_t(fMainBegin));
+        ptrdiff_t        mainBegin0 = convertCoordinate(srcH, dstH, 0);
+        ptrdiff_t        mainBegin  = clamp<ptrdiff_t>(0, dstH, mainBegin0);
         ptrdiff_t        mainEnd    = clamp<ptrdiff_t>(0, dstH, dstH - mainBegin);
 
         // border pixels
@@ -328,8 +342,8 @@ namespace iqo {
         }
 
         ptrdiff_t   dstW        = m_DstW;
-        double      fMainBegin  = std::ceil(0.5 * dstW / m_SrcW - 0.5);
-        ptrdiff_t   mainBegin   = clamp<ptrdiff_t>(0, dstW, ptrdiff_t(fMainBegin));
+        ptrdiff_t   mainBegin0  = convertCoordinate(m_SrcW, dstW, 0);
+        ptrdiff_t   mainBegin   = clamp<ptrdiff_t>(0, dstW, mainBegin0);
         ptrdiff_t   mainEnd     = clamp<ptrdiff_t>(0, dstW, dstW - mainBegin);
 
         resizeXborder(src, dst, 0, 0, mainBegin);
