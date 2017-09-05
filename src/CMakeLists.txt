@@ -23,7 +23,7 @@ target_include_directories(iqo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 # CXX base flags
 
 if ( CMAKE_COMPILER_IS_GNUCXX OR ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang") )
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++98")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++98 -fno-exceptions")
 endif()
 
 

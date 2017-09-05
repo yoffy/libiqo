@@ -1,8 +1,9 @@
 # benchmak
 #
 # Optional Variables:
-#     OPENCV_DIR  Path to OpenCV. It is parent directory of include directory.
-#     IPPROOT     Path to Intel IPP. Set ippvars.sh (ippvars.bat in Windows)
+#     OPENCV_DIR      Path to OpenCV. It is parent directory of include directory.
+#     IPPROOT         Path to Intel IPP. Set ippvars.sh (ippvars.bat in Windows)
+#     IPP_TARGET_ARCH Architecture for Intel IPP. (ex. intel64)
 
 cmake_minimum_required(VERSION 3.5)
 project(benchmark)
@@ -20,7 +21,7 @@ endif()
 
 # CXX base flags
 if ( CMAKE_COMPILER_IS_GNUCXX OR ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang") )
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-exceptions -g")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -g")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wconversion -Wno-sign-conversion")
 elseif ( MSVC )
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc /W3 /Zi")
@@ -71,18 +72,19 @@ endif()
 
 # Intel IPP
 find_path(IPP_H_PATH NAMES ipp.h PATHS $ENV{IPPROOT}/include NO_DEFAULT_PATH NO_CMAKE_PATH)
-if ( IPP_H_PATH )
-    set(HAVE_IPP_H ON)
+if ( IPP_H_PATH AND DEFINED ENV{IPPROOT} )
     set(IPP_INCLUDE_DIR $ENV{IPPROOT}/include)
     set(IPP_LIB_DIR $ENV{IPPROOT}/lib/$ENV{IPP_TARGET_ARCH})
-    message(STATUS "IPP_INCLUDE: ${IPP_INCLUDE_DIR}")
-    message(STATUS "IPP_LIB: ${IPP_LIB_DIR}")
     include_directories(${IPP_INCLUDE_DIR})
     link_directories(${IPP_LIB_DIR})
     find_library(IPP_IPPI ippi PATHS ${IPP_LIB_DIR})
     find_library(IPP_IPPS ipps PATHS ${IPP_LIB_DIR})
     find_library(IPP_IPPCORE ippcore PATHS ${IPP_LIB_DIR})
-    target_link_libraries(benchmark LINK_PUBLIC ${IPP_IPPI} ${IPP_IPPS} ${IPP_IPPCORE})
+    if ( IPP_IPPI AND IPP_IPPS AND IPP_IPPCORE )
+        set(HAVE_IPP_H ON)
+        message(STATUS "Found IPP: ${IPP_LIB_DIR}")
+        target_link_libraries(benchmark LINK_PUBLIC ${IPP_IPPI} ${IPP_IPPS} ${IPP_IPPCORE})
+    endif()
 endif()
 
 
