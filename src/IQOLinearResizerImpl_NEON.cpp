@@ -437,7 +437,6 @@ namespace iqo {
     ) {
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
-        ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
         int32_t numCoefsX = m_NumCoefsX;
         int32_t srcW = m_SrcW;
 
