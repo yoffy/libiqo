@@ -106,7 +106,7 @@ namespace iqo {
 
         enum {
             //! for SIMD
-            kVecStepX  =  8, //!< float32x4 x 2
+            kVecStepX  = 16, //!< float32x4 x 4
             kVecStepY  = 16, //!< float32x4 x 4
         };
         int32_t m_SrcW;
@@ -377,34 +377,50 @@ namespace iqo {
             //      nume        = 0;
             __m128  f32x4Nume0  = _mm_setzero_ps();
             __m128  f32x4Nume1  = _mm_setzero_ps();
+            __m128  f32x4Nume2  = _mm_setzero_ps();
+            __m128  f32x4Nume3  = _mm_setzero_ps();
             //      srcOX       = floor(dstX / scale);
-            __m128i s32x4SrcOX0 = _mm_loadu_si128((const __m128i*)&indices[dstX + 0]);
-            __m128i s32x4SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX + 4]);
+            __m128i s32x4SrcOX0 = _mm_loadu_si128((const __m128i*)&indices[dstX +  0]);
+            __m128i s32x4SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX +  4]);
+            __m128i s32x4SrcOX2 = _mm_loadu_si128((const __m128i*)&indices[dstX +  8]);
+            __m128i s32x4SrcOX3 = _mm_loadu_si128((const __m128i*)&indices[dstX + 12]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 //      srcX        = srcOX + i;
                 __m128i s32x4Offset = _mm_set1_epi32(i);
                 __m128i s32x4SrcX0  = _mm_add_epi32(s32x4SrcOX0, s32x4Offset);
                 __m128i s32x4SrcX1  = _mm_add_epi32(s32x4SrcOX1, s32x4Offset);
+                __m128i s32x4SrcX2  = _mm_add_epi32(s32x4SrcOX2, s32x4Offset);
+                __m128i s32x4SrcX3  = _mm_add_epi32(s32x4SrcOX3, s32x4Offset);
 
                 //      nume       += src[srcX] * coefs[iCoef];
                 __m128  f32x4Src0   = gather_ps(src, s32x4SrcX0);
                 __m128  f32x4Src1   = gather_ps(src, s32x4SrcX1);
-                __m128  f32x4Coefs0 = _mm_load_ps(&coefs[iCoef + 0]);
-                __m128  f32x4Coefs1 = _mm_load_ps(&coefs[iCoef + 4]);
+                __m128  f32x4Src2   = gather_ps(src, s32x4SrcX2);
+                __m128  f32x4Src3   = gather_ps(src, s32x4SrcX3);
+                __m128  f32x4Coefs0 = _mm_load_ps(&coefs[iCoef +  0]);
+                __m128  f32x4Coefs1 = _mm_load_ps(&coefs[iCoef +  4]);
+                __m128  f32x4Coefs2 = _mm_load_ps(&coefs[iCoef +  8]);
+                __m128  f32x4Coefs3 = _mm_load_ps(&coefs[iCoef + 12]);
                 __m128  f32x4iNume0 = _mm_mul_ps(f32x4Src0, f32x4Coefs0);
                 __m128  f32x4iNume1 = _mm_mul_ps(f32x4Src1, f32x4Coefs1);
+                __m128  f32x4iNume2 = _mm_mul_ps(f32x4Src2, f32x4Coefs2);
+                __m128  f32x4iNume3 = _mm_mul_ps(f32x4Src3, f32x4Coefs3);
                 f32x4Nume0 = _mm_add_ps(f32x4Nume0, f32x4iNume0);
                 f32x4Nume1 = _mm_add_ps(f32x4Nume1, f32x4iNume1);
+                f32x4Nume2 = _mm_add_ps(f32x4Nume2, f32x4iNume2);
+                f32x4Nume3 = _mm_add_ps(f32x4Nume3, f32x4iNume3);
 
                 iCoef += kVecStepX;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(nume));
-            __m128  f32x4Dst0     = f32x4Nume0;
-            __m128  f32x4Dst1     = f32x4Nume1;
-            __m128i u8x8Dst       = cvt_roundps_epu8(f32x4Dst0, f32x4Dst1);
-            _mm_storel_epi64((__m128i*)&dst[dstX], u8x8Dst);
+            __m128i u8x8Dst0 = cvt_roundps_epu8(f32x4Nume0, f32x4Nume1);
+            __m128i u8x8Dst1 = cvt_roundps_epu8(f32x4Nume2, f32x4Nume3);
+            //_mm_storel_epi64((__m128i*)&dst[dstX + 0], u8x8Dst0);
+            //_mm_storel_epi64((__m128i*)&dst[dstX + 8], u8x8Dst1);
+            __m128i u8x16Dst = _mm_unpacklo_epi64(u8x8Dst0, u8x8Dst1);
+            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
