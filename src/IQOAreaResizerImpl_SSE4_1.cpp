@@ -355,19 +355,12 @@ namespace iqo {
             __m128  f32x4Nume2  = _mm_setzero_ps();
             __m128  f32x4Nume3  = _mm_setzero_ps();
             //      srcOX       = floor(dstX / scale);
-            __m128i s32x4SrcOX0 = _mm_loadu_si128((const __m128i*)&indices[dstX +  0]);
-            __m128i s32x4SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX +  4]);
-            __m128i s32x4SrcOX2 = _mm_loadu_si128((const __m128i*)&indices[dstX +  8]);
-            __m128i s32x4SrcOX3 = _mm_loadu_si128((const __m128i*)&indices[dstX + 12]);
+            __m128i s32x4SrcX0 = _mm_loadu_si128((const __m128i*)&indices[dstX +  0]);
+            __m128i s32x4SrcX1 = _mm_loadu_si128((const __m128i*)&indices[dstX +  4]);
+            __m128i s32x4SrcX2 = _mm_loadu_si128((const __m128i*)&indices[dstX +  8]);
+            __m128i s32x4SrcX3 = _mm_loadu_si128((const __m128i*)&indices[dstX + 12]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
-                //      srcX        = srcOX + i;
-                __m128i s32x4Offset = _mm_set1_epi32(i);
-                __m128i s32x4SrcX0  = _mm_add_epi32(s32x4SrcOX0, s32x4Offset);
-                __m128i s32x4SrcX1  = _mm_add_epi32(s32x4SrcOX1, s32x4Offset);
-                __m128i s32x4SrcX2  = _mm_add_epi32(s32x4SrcOX2, s32x4Offset);
-                __m128i s32x4SrcX3  = _mm_add_epi32(s32x4SrcOX3, s32x4Offset);
-
                 //      nume       += src[srcX] * coefs[iCoef];
                 __m128  f32x4Src0   = gather_ps(src, s32x4SrcX0);
                 __m128  f32x4Src1   = gather_ps(src, s32x4SrcX1);
@@ -386,6 +379,12 @@ namespace iqo {
                 f32x4Nume2 = _mm_add_ps(f32x4Nume2, f32x4iNume2);
                 f32x4Nume3 = _mm_add_ps(f32x4Nume3, f32x4iNume3);
 
+                //      srcX        = srcOX + i;
+                const __m128i k1 = _mm_set1_epi32(1);
+                s32x4SrcX0 = _mm_add_epi32(s32x4SrcX0, k1);
+                s32x4SrcX1 = _mm_add_epi32(s32x4SrcX1, k1);
+                s32x4SrcX2 = _mm_add_epi32(s32x4SrcX2, k1);
+                s32x4SrcX3 = _mm_add_epi32(s32x4SrcX3, k1);
                 iCoef += kVecStepX;
             }
 
