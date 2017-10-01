@@ -121,13 +121,6 @@ namespace iqo {
     };
 
     template<>
-    bool LanczosResizerImpl_hasFeature<ArchAVX2FMA>()
-    {
-        HWCap cap;
-        return cap.hasAVX2() && cap.hasFMA();
-    }
-
-    template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX2FMA>()
     {
         return new LanczosResizerImpl<ArchAVX2FMA>();

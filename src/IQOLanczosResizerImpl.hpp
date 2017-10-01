@@ -61,13 +61,6 @@ namespace iqo {
         }
     };
 
-    //! Returns feature capability
-    template<class ARCH>
-    bool LanczosResizerImpl_hasFeature()
-    {
-        return false;
-    }
-
     //! new LanczosResizerImpl<ARCH>
     template<class ARCH>
     ILanczosResizerImpl * LanczosResizerImpl_new()
@@ -75,11 +68,6 @@ namespace iqo {
         return NULL;
     }
 
-    template<> bool LanczosResizerImpl_hasFeature<ArchGeneric>();
-    template<> bool LanczosResizerImpl_hasFeature<ArchSSE4_1>();
-    template<> bool LanczosResizerImpl_hasFeature<ArchAVX2FMA>();
-    template<> bool LanczosResizerImpl_hasFeature<ArchAVX512>();
-    template<> bool LanczosResizerImpl_hasFeature<ArchNEON>();
     template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchGeneric>();
     template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchSSE4_1>();
     template<> ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX2FMA>();

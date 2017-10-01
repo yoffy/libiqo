@@ -17,24 +17,6 @@
 
 namespace {
 
-    int getNumberOfProcs()
-    {
-#if defined(_OPENMP)
-        return omp_get_num_procs();
-#else
-        return 1;
-#endif
-    }
-
-    int getThreadNumber()
-    {
-#if defined(_OPENMP)
-        return omp_get_thread_num();
-#else
-        return 0;
-#endif
-    }
-
     float32x4_t gather(const float * src, int32x4_t indices)
     {
         float32x4_t v = float32x4_t();
@@ -170,13 +152,6 @@ namespace iqo {
     };
 
     template<>
-    bool LanczosResizerImpl_hasFeature<ArchNEON>()
-    {
-        HWCap cap;
-        return cap.hasNEON();
-    }
-
-    template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchNEON>()
     {
         return new LanczosResizerImpl<ArchNEON>();
@@ -272,8 +247,8 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * getNumberOfProcs());
-        m_Work.resize(m_SrcW * getNumberOfProcs());
+        m_Work.reserve(m_SrcW * HWCap::getNumberOfProcs());
+        m_Work.resize(m_SrcW * HWCap::getNumberOfProcs());
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
@@ -297,7 +272,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -315,7 +290,7 @@ namespace iqo {
         // border pixels
 #pragma omp parallel for
         for ( ptrdiff_t dstY = 0; dstY < mainBegin; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYborder(
@@ -329,7 +304,7 @@ namespace iqo {
         // main loop
 #pragma omp parallel for
         for ( ptrdiff_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(
@@ -343,7 +318,7 @@ namespace iqo {
         // border pixels
 #pragma omp parallel for
         for ( ptrdiff_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYborder(
@@ -632,12 +607,6 @@ namespace iqo {
 #else
 
 namespace iqo {
-
-    template<>
-    bool LanczosResizerImpl_hasFeature<ArchNEON>()
-    {
-        return false;
-    }
 
     template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchNEON>()

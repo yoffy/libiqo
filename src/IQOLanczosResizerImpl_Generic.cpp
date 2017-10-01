@@ -282,12 +282,6 @@ namespace iqo {
     };
 
     template<>
-    bool LanczosResizerImpl_hasFeature<ArchGeneric>()
-    {
-        return true;
-    }
-
-    template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchGeneric>()
     {
         return new LanczosResizerImpl<ArchGeneric>();

@@ -17,53 +17,42 @@
 
 namespace {
 
-    int getNumberOfProcs()
-    {
-#if defined(_OPENMP)
-        return omp_get_num_procs();
-#else
-        return 1;
-#endif
-    }
-
-    int getThreadNumber()
-    {
-#if defined(_OPENMP)
-        return omp_get_thread_num();
-#else
-        return 0;
-#endif
-    }
+    #define IQO_INSERT_MEM_PS(f32x4Dst, srcPtr, dstField) \
+        _mm_insert_ps((f32x4Dst), _mm_load_ss(srcPtr), (dstField) << 4)
 
     //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
-    #define IQO_INSERT_MEM_PS(srcPtr, s32x4Indices, srcField, f32x4Dst, dstField) \
-        _mm_insert_ps( \
-            (f32x4Dst), \
-            _mm_load_ss(&(srcPtr)[_mm_extract_epi32((s32x4Indices), (srcField))]), \
-            (dstField) << 4 \
-        )
-
     __m128 gather_ps(const float * f32Src, __m128i s32x4Indices)
     {
-        __m128 f32x4V = _mm_setzero_ps();
-        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 0, f32x4V, 0);
-        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 1, f32x4V, 1);
-        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 2, f32x4V, 2);
-        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 3, f32x4V, 3);
+        // MOVQ is very faster than PEXTRD/Q in Silvermont
+        uint64_t s32x2Indices0 = _mm_cvtsi128_si64(s32x4Indices);
+        uint64_t s32x2Indices1 = _mm_extract_epi64(s32x4Indices, 1);
+        ptrdiff_t i0 = int32_t(s32x2Indices0);
+        ptrdiff_t i1 = int32_t(s32x2Indices0 >> 32);
+        ptrdiff_t i2 = int32_t(s32x2Indices1);
+        ptrdiff_t i3 = int32_t(s32x2Indices1 >> 32);
+        __m128 f32x4V = _mm_load_ss(&f32Src[i0]);
+        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i1], 1);
+        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i2], 2);
+        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i3], 3);
         return f32x4V;
     }
 
     __m128 mask_gather_ps(const float * f32Src, __m128i s32x4Indices, __m128i u32x4Mask)
     {
-        int32_t s32Indices[4];
-        float f32Dst[4];
+        // MOVQ is very faster than PEXTRD/Q in Silvermont
+        uint64_t s32x2Indices0 = _mm_cvtsi128_si64(s32x4Indices);
+        uint64_t s32x2Indices1 = _mm_extract_epi64(s32x4Indices, 1);
+        ptrdiff_t i0 = int32_t(s32x2Indices0);
+        ptrdiff_t i1 = int32_t(s32x2Indices0 >> 32);
+        ptrdiff_t i2 = int32_t(s32x2Indices1);
+        ptrdiff_t i3 = int32_t(s32x2Indices1 >> 32);
         uint32_t b16Mask = _mm_movemask_epi8(u32x4Mask);
-        _mm_storeu_si128((__m128i*)s32Indices, s32x4Indices);
-        for ( int i = 0; i < 4; ++i ) {
-            f32Dst[i] = (b16Mask & 1) ? f32Src[s32Indices[i]] : 0;
-            b16Mask >>= 4;
-        }
-        return _mm_loadu_ps(f32Dst);
+        __m128 f32x4V = _mm_setzero_ps();
+        if ( b16Mask & 0x0001 ) f32x4V = _mm_load_ss(&f32Src[i0]);
+        if ( b16Mask & 0x0010 ) f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i1], 1);
+        if ( b16Mask & 0x0100 ) f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i2], 2);
+        if ( b16Mask & 0x1000 ) f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i3], 3);
+        return f32x4V;
     }
 
     uint8_t cvt_roundss_su8(float v)
@@ -153,13 +142,6 @@ namespace iqo {
         std::vector<int32_t> m_IndicesX;
         std::vector<float> m_Work;
     };
-
-    template<>
-    bool LanczosResizerImpl_hasFeature<ArchSSE4_1>()
-    {
-        HWCap cap;
-        return cap.hasSSE4_1();
-    }
 
     template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchSSE4_1>()
@@ -257,8 +239,8 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * getNumberOfProcs());
-        m_Work.resize(m_SrcW * getNumberOfProcs());
+        m_Work.reserve(m_SrcW * HWCap::getNumberOfProcs());
+        m_Work.resize(m_SrcW * HWCap::getNumberOfProcs());
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
@@ -282,7 +264,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -300,7 +282,7 @@ namespace iqo {
         // border pixels
 #pragma omp parallel for
         for ( ptrdiff_t dstY = 0; dstY < mainBegin; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYborder(
@@ -314,7 +296,7 @@ namespace iqo {
         // main loop
 #pragma omp parallel for
         for ( ptrdiff_t dstY = mainBegin; dstY < mainEnd; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(
@@ -328,7 +310,7 @@ namespace iqo {
         // border pixels
 #pragma omp parallel for
         for ( ptrdiff_t dstY = mainEnd; dstY < m_DstH; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH + 1);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYborder(

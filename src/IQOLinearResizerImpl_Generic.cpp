@@ -148,12 +148,6 @@ namespace iqo {
     };
 
     template<>
-    bool LinearResizerImpl_hasFeature<ArchGeneric>()
-    {
-        return true;
-    }
-
-    template<>
     ILinearResizerImpl * LinearResizerImpl_new<ArchGeneric>()
     {
         return new LinearResizerImpl<ArchGeneric>();

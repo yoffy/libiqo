@@ -27,21 +27,23 @@ namespace {
         return int32_t(std::ceil(std::fabs(toX)));
     }
 
-    //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
-    #define IQO_INSERT_MEM_PS(srcPtr, s32x4Indices, srcField, f32x4Dst, dstField) \
-        _mm_insert_ps( \
-            (f32x4Dst), \
-            _mm_load_ss(&(srcPtr)[_mm_extract_epi32((s32x4Indices), (srcField))]), \
-            (dstField) << 4 \
-        )
+    #define IQO_INSERT_MEM_PS(f32x4Dst, srcPtr, dstField) \
+        _mm_insert_ps((f32x4Dst), _mm_load_ss(srcPtr), (dstField) << 4)
 
+    //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
     __m128 gather_ps(const float * f32Src, __m128i s32x4Indices)
     {
-        __m128 f32x4V = _mm_setzero_ps();
-        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 0, f32x4V, 0);
-        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 1, f32x4V, 1);
-        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 2, f32x4V, 2);
-        f32x4V = IQO_INSERT_MEM_PS(f32Src, s32x4Indices, 3, f32x4V, 3);
+        // MOVQ is very faster than PEXTRD/Q in Silvermont
+        uint64_t s32x2Indices0 = _mm_cvtsi128_si64(s32x4Indices);
+        uint64_t s32x2Indices1 = _mm_extract_epi64(s32x4Indices, 1);
+        ptrdiff_t i0 = int32_t(s32x2Indices0);
+        ptrdiff_t i1 = int32_t(s32x2Indices0 >> 32);
+        ptrdiff_t i2 = int32_t(s32x2Indices1);
+        ptrdiff_t i3 = int32_t(s32x2Indices1 >> 32);
+        __m128 f32x4V = _mm_load_ss(&f32Src[i0]);
+        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i1], 1);
+        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i2], 2);
+        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i3], 3);
         return f32x4V;
     }
 
@@ -117,7 +119,7 @@ namespace iqo {
             m_NumCoefsY = 2,
 
             //! for SIMD
-            kVecStepX  =  8, //!< float32x4 x 2
+            kVecStepX  = 16, //!< float32x4 x 4
             kVecStepY  = 16, //!< float32x4 x 4
         };
         int32_t m_SrcW;
@@ -134,13 +136,6 @@ namespace iqo {
         std::vector<int32_t> m_IndicesX;
         std::vector<float> m_Work;
     };
-
-    template<>
-    bool LinearResizerImpl_hasFeature<ArchSSE4_1>()
-    {
-        HWCap cap;
-        return cap.hasSSE4_1();
-    }
 
     template<>
     ILinearResizerImpl * LinearResizerImpl_new<ArchSSE4_1>()
@@ -471,36 +466,50 @@ namespace iqo {
             //      nume        = 0;
             __m128  f32x4Nume0  = _mm_setzero_ps();
             __m128  f32x4Nume1  = _mm_setzero_ps();
+            __m128  f32x4Nume2  = _mm_setzero_ps();
+            __m128  f32x4Nume3  = _mm_setzero_ps();
             //      srcOX       = int32_t(floor((dstX+0.5) / scale - 0.5));
-            __m128i s32x4SrcOX0 = _mm_loadu_si128((const __m128i*)&indices[dstX + 0]);
-            __m128i s32x4SrcOX1 = _mm_loadu_si128((const __m128i*)&indices[dstX + 4]);
+            __m128i s32x4SrcX0  = _mm_loadu_si128((const __m128i*)&indices[dstX +  0]);
+            __m128i s32x4SrcX1  = _mm_loadu_si128((const __m128i*)&indices[dstX +  4]);
+            __m128i s32x4SrcX2  = _mm_loadu_si128((const __m128i*)&indices[dstX +  8]);
+            __m128i s32x4SrcX3  = _mm_loadu_si128((const __m128i*)&indices[dstX + 12]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
-                //      srcX        = srcOX + i;
-                __m128i s32x4Offset = _mm_set1_epi32(i);
-                __m128i s32x4SrcX0  = _mm_add_epi32(s32x4SrcOX0, s32x4Offset);
-                __m128i s32x4SrcX1  = _mm_add_epi32(s32x4SrcOX1, s32x4Offset);
-
                 //      iNume      += src[srcX] * coefs[iCoef];
                 __m128  f32x4Src0   = gather_ps(src, s32x4SrcX0);
                 __m128  f32x4Src1   = gather_ps(src, s32x4SrcX1);
-                __m128  f32x4Coefs0 = _mm_load_ps(&coefs[iCoef + 0]);
-                __m128  f32x4Coefs1 = _mm_load_ps(&coefs[iCoef + 4]);
+                __m128  f32x4Src2   = gather_ps(src, s32x4SrcX2);
+                __m128  f32x4Src3   = gather_ps(src, s32x4SrcX3);
+                __m128  f32x4Coefs0 = _mm_load_ps(&coefs[iCoef +  0]);
+                __m128  f32x4Coefs1 = _mm_load_ps(&coefs[iCoef +  4]);
+                __m128  f32x4Coefs2 = _mm_load_ps(&coefs[iCoef +  8]);
+                __m128  f32x4Coefs3 = _mm_load_ps(&coefs[iCoef + 12]);
                 __m128  f32x4iNume0 = _mm_mul_ps(f32x4Src0, f32x4Coefs0);
                 __m128  f32x4iNume1 = _mm_mul_ps(f32x4Src1, f32x4Coefs1);
+                __m128  f32x4iNume2 = _mm_mul_ps(f32x4Src2, f32x4Coefs2);
+                __m128  f32x4iNume3 = _mm_mul_ps(f32x4Src3, f32x4Coefs3);
 
                 // nume   += iNume;
                 f32x4Nume0 = _mm_add_ps(f32x4Nume0, f32x4iNume0);
                 f32x4Nume1 = _mm_add_ps(f32x4Nume1, f32x4iNume1);
+                f32x4Nume2 = _mm_add_ps(f32x4Nume2, f32x4iNume2);
+                f32x4Nume3 = _mm_add_ps(f32x4Nume3, f32x4iNume3);
+
+                //      srcX        = srcOX + i;
+                const __m128i k1 = _mm_set1_epi32(1);
+                s32x4SrcX0 = _mm_add_epi32(s32x4SrcX0, k1);
+                s32x4SrcX1 = _mm_add_epi32(s32x4SrcX1, k1);
+                s32x4SrcX2 = _mm_add_epi32(s32x4SrcX2, k1);
+                s32x4SrcX3 = _mm_add_epi32(s32x4SrcX3, k1);
 
                 iCoef += kVecStepX;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(nume));
-            __m128  f32x4Dst0     = f32x4Nume0;
-            __m128  f32x4Dst1     = f32x4Nume1;
-            __m128i u8x8Dst       = cvt_roundps_epu8(f32x4Dst0, f32x4Dst1);
-            _mm_storel_epi64((__m128i*)&dst[dstX], u8x8Dst);
+            __m128i u8x8Dst0 = cvt_roundps_epu8(f32x4Nume0, f32x4Nume1);
+            __m128i u8x8Dst1 = cvt_roundps_epu8(f32x4Nume2, f32x4Nume3);
+            __m128i u8x16Dst = _mm_unpacklo_epi64(u8x8Dst0, u8x8Dst1);
+            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
@@ -540,12 +549,6 @@ namespace iqo {
 #else
 
 namespace iqo {
-
-    template<>
-    bool LinearResizerImpl_hasFeature<ArchSSE4_1>()
-    {
-        return false;
-    }
 
     template<>
     ILinearResizerImpl * LinearResizerImpl_new<ArchSSE4_1>()

@@ -149,13 +149,6 @@ namespace iqo {
     };
 
     template<>
-    bool LinearResizerImpl_hasFeature<ArchNEON>()
-    {
-        HWCap cap;
-        return cap.hasNEON();
-    }
-
-    template<>
     ILinearResizerImpl * LinearResizerImpl_new<ArchNEON>()
     {
         return new LinearResizerImpl<ArchNEON>();
@@ -553,12 +546,6 @@ namespace iqo {
 #else
 
 namespace iqo {
-
-    template<>
-    bool LinearResizerImpl_hasFeature<ArchNEON>()
-    {
-        return false;
-    }
 
     template<>
     ILinearResizerImpl * LinearResizerImpl_new<ArchNEON>()

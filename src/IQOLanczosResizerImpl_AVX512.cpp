@@ -130,17 +130,6 @@ namespace iqo {
     };
 
     template<>
-    bool LanczosResizerImpl_hasFeature<ArchAVX512>()
-    {
-        HWCap cap;
-        return cap.hasAVX512F()
-            && cap.hasAVX512VL()
-            && cap.hasAVX512BW()
-            && cap.hasAVX512DQ()
-            && cap.hasAVX512CD();
-    }
-
-    template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX512>()
     {
         return new LanczosResizerImpl<ArchAVX512>();
