@@ -24,6 +24,9 @@ namespace iqo {
         bool hasAVX512CD() const    { return m_0x07_0x00.b & (1 << 28); }
         bool hasBMI1() const        { return m_0x07_0x00.b & (1 <<  3); }
         bool hasBMI2() const        { return m_0x07_0x00.b & (1 <<  8); }
+
+        bool hasAVX2FMA() const;    //!< AVX2 & FMA
+        bool hasAVX512() const;     //!< F && VL && BW && DQ && CD
 #endif
 
 #if defined(IQO_CPU_ARM)

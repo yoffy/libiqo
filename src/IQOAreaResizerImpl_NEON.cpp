@@ -136,13 +136,6 @@ namespace iqo {
     };
 
     template<>
-    bool AreaResizerImpl_hasFeature<ArchNEON>()
-    {
-        HWCap cap;
-        return cap.hasNEON();
-    }
-
-    template<>
     IAreaResizerImpl * AreaResizerImpl_new<ArchNEON>()
     {
         return new AreaResizerImpl<ArchNEON>();
@@ -442,12 +435,6 @@ namespace iqo {
 #else
 
 namespace iqo {
-
-    template<>
-    bool AreaResizerImpl_hasFeature<ArchNEON>()
-    {
-        return false;
-    }
 
     template<>
     IAreaResizerImpl * AreaResizerImpl_new<ArchNEON>()

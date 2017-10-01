@@ -165,12 +165,6 @@ namespace iqo {
     };
 
     template<>
-    bool AreaResizerImpl_hasFeature<ArchGeneric>()
-    {
-        return true;
-    }
-
-    template<>
     IAreaResizerImpl * AreaResizerImpl_new<ArchGeneric>()
     {
         return new AreaResizerImpl<ArchGeneric>();

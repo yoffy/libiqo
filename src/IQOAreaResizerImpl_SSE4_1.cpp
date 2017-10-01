@@ -17,24 +17,6 @@
 
 namespace {
 
-    int getNumberOfProcs()
-    {
-#if defined(_OPENMP)
-        return omp_get_num_procs();
-#else
-        return 1;
-#endif
-    }
-
-    int getThreadNumber()
-    {
-#if defined(_OPENMP)
-        return omp_get_thread_num();
-#else
-        return 0;
-#endif
-    }
-
     //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
     #define IQO_INSERT_MEM_PS(srcPtr, s32x4Indices, srcField, f32x4Dst, dstField) \
         _mm_insert_ps( \
@@ -127,13 +109,6 @@ namespace iqo {
     };
 
     template<>
-    bool AreaResizerImpl_hasFeature<ArchSSE4_1>()
-    {
-        HWCap cap;
-        return cap.hasSSE4_1();
-    }
-
-    template<>
     IAreaResizerImpl * AreaResizerImpl_new<ArchSSE4_1>()
     {
         return new AreaResizerImpl<ArchSSE4_1>();
@@ -224,8 +199,8 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * getNumberOfProcs());
-        m_Work.resize(m_SrcW * getNumberOfProcs());
+        m_Work.reserve(m_SrcW * HWCap::getNumberOfProcs());
+        m_Work.resize(m_SrcW * HWCap::getNumberOfProcs());
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
@@ -249,7 +224,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -263,7 +238,7 @@ namespace iqo {
         // main loop
 #pragma omp parallel for
         for ( int32_t dstY = 0; dstY < dstH; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(
@@ -450,12 +425,6 @@ namespace iqo {
 #else
 
 namespace iqo {
-
-    template<>
-    bool AreaResizerImpl_hasFeature<ArchSSE4_1>()
-    {
-        return false;
-    }
 
     template<>
     IAreaResizerImpl * AreaResizerImpl_new<ArchSSE4_1>()

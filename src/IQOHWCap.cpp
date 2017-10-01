@@ -37,6 +37,20 @@ namespace iqo {
 #endif
     }
 
+    bool HWCap::hasAVX2FMA() const
+    {
+        return hasAVX2() && hasFMA();
+    }
+
+    bool HWCap::hasAVX512() const
+    {
+        return hasAVX512F()
+            && hasAVX512VL()
+            && hasAVX512BW()
+            && hasAVX512DQ()
+            && hasAVX512CD();
+    }
+
 #if defined(IQO_CPU_X86)
     void HWCap::cpuid(unsigned int eax, unsigned int ecx, CPUID & dst)
     {

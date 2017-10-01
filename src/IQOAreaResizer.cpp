@@ -1,4 +1,5 @@
 #include "IQOAreaResizerImpl.hpp"
+#include "IQOHWCap.hpp"
 
 
 namespace iqo {
@@ -9,23 +10,27 @@ namespace iqo {
         size_t dstW,
         size_t dstH
     ) {
-#if defined(IQO_CPU_X86)
-        if ( AreaResizerImpl_hasFeature<ArchAVX512>() ) {
-            m_Impl = AreaResizerImpl_new<ArchAVX512>();
-        } else if ( AreaResizerImpl_hasFeature<ArchAVX2FMA>() ) {
-            m_Impl = AreaResizerImpl_new<ArchAVX2FMA>();
-        } else if ( AreaResizerImpl_hasFeature<ArchSSE4_1>() ) {
-            m_Impl = AreaResizerImpl_new<ArchSSE4_1>();
-        } else
-#elif defined(IQO_CPU_ARM)
-        if ( AreaResizerImpl_hasFeature<ArchNEON>() ) {
-            m_Impl = AreaResizerImpl_new<ArchNEON>();
-        } else
-#endif
-        {
-            m_Impl = AreaResizerImpl_new<ArchGeneric>();
-        }
+        HWCap cap;
 
+#if defined(IQO_CPU_X86)
+        if ( cap.hasAVX512() && (m_Impl = AreaResizerImpl_new<ArchAVX512>()) ) {
+            goto L_found;
+        }
+        if ( cap.hasAVX2FMA() && (m_Impl = AreaResizerImpl_new<ArchAVX2FMA>()) ) {
+            goto L_found;
+        }
+        if ( cap.hasSSE4_1() && (m_Impl = AreaResizerImpl_new<ArchSSE4_1>()) ) {
+            goto L_found;
+        }
+#elif defined(IQO_CPU_ARM)
+        if ( cap.hasNEON() && (m_Impl = AreaResizerImpl_new<ArchNEON>()) ) {
+            goto L_found;
+        }
+#endif
+
+        m_Impl = AreaResizerImpl_new<ArchGeneric>();
+
+L_found:
         m_Impl->init(srcW, srcH, dstW, dstH);
     }
 

@@ -55,13 +55,6 @@ namespace iqo {
         }
     };
 
-    //! Returns feature capability
-    template<class ARCH>
-    bool AreaResizerImpl_hasFeature()
-    {
-        return false;
-    }
-
     //! new AreaResizerImpl<ARCH>
     template<class ARCH>
     IAreaResizerImpl * AreaResizerImpl_new()
@@ -69,11 +62,6 @@ namespace iqo {
         return NULL;
     }
 
-    template<> bool AreaResizerImpl_hasFeature<ArchGeneric>();
-    template<> bool AreaResizerImpl_hasFeature<ArchSSE4_1>();
-    template<> bool AreaResizerImpl_hasFeature<ArchAVX2FMA>();
-    template<> bool AreaResizerImpl_hasFeature<ArchAVX512>();
-    template<> bool AreaResizerImpl_hasFeature<ArchNEON>();
     template<> IAreaResizerImpl * AreaResizerImpl_new<ArchGeneric>();
     template<> IAreaResizerImpl * AreaResizerImpl_new<ArchSSE4_1>();
     template<> IAreaResizerImpl * AreaResizerImpl_new<ArchAVX2FMA>();
