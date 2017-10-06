@@ -17,8 +17,24 @@
 
 namespace {
 
-    #define IQO_INSERT_MEM_PS(f32x4Dst, srcPtr, dstField) \
-        _mm_insert_ps((f32x4Dst), _mm_load_ss(srcPtr), (dstField) << 4)
+    template<int dstField>
+    __m128 insert_mem_ps(__m128 f32x4Dst, const float * srcPtr)
+    {
+#if defined(__GNUC__)
+        // separate loading and insertion for performance (33% faster in Cherry Trail)
+        __m128 tmp;
+        __asm__ (
+          "movss (%[src]), %[tmp]               \n\t"
+          "insertps $%c[field], %[tmp], %[dst]  \n\t"
+          : [dst]"=x"(f32x4Dst), [tmp]"=&x"(tmp)
+          : [src]"r"(srcPtr), [dst]"x"(f32x4Dst), [field]"i"(dstField << 4)
+          :
+        );
+        return f32x4Dst;
+#else
+        return _mm_insert_ps(f32x4Dst, _mm_load_ss(srcPtr), dstField << 4);
+#endif
+    }
 
     //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
     __m128 gather_ps(const float * f32Src, __m128i s32x4Indices)
@@ -31,9 +47,9 @@ namespace {
         ptrdiff_t i2 = int32_t(s32x2Indices1);
         ptrdiff_t i3 = int32_t(s32x2Indices1 >> 32);
         __m128 f32x4V = _mm_load_ss(&f32Src[i0]);
-        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i1], 1);
-        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i2], 2);
-        f32x4V = IQO_INSERT_MEM_PS(f32x4V, &f32Src[i3], 3);
+        f32x4V = insert_mem_ps<1>(f32x4V, &f32Src[i1]);
+        f32x4V = insert_mem_ps<2>(f32x4V, &f32Src[i2]);
+        f32x4V = insert_mem_ps<3>(f32x4V, &f32Src[i3]);
         return f32x4V;
     }
 
