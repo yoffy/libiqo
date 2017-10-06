@@ -21,7 +21,7 @@ namespace {
     __m128 insert_mem_ps(__m128 f32x4Dst, const float * srcPtr)
     {
 #if defined(__GNUC__)
-        // separate loading and insertion for performance (33% faster in Cherry Trail)
+        // separate loading and insertion for performance (33% faster on Cherry Trail)
         __m128 tmp;
         __asm__ (
           "movss (%[src]), %[tmp]               \n\t"
