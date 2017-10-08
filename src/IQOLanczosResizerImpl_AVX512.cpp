@@ -599,12 +599,6 @@ namespace iqo {
 namespace iqo {
 
     template<>
-    bool LanczosResizerImpl_hasFeature<ArchAVX512>()
-    {
-        return false;
-    }
-
-    template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX512>()
     {
         return NULL;

@@ -37,6 +37,7 @@ namespace iqo {
 #endif
     }
 
+#if defined(IQO_CPU_X86)
     bool HWCap::hasAVX2FMA() const
     {
         return hasAVX2() && hasFMA();
@@ -51,7 +52,6 @@ namespace iqo {
             && hasAVX512CD();
     }
 
-#if defined(IQO_CPU_X86)
     void HWCap::cpuid(unsigned int eax, unsigned int ecx, CPUID & dst)
     {
     #if defined(__GNUC__) || defined(__clang__)

@@ -32,7 +32,7 @@ namespace {
     __m128 insert_ps(__m128 f32x4Dst, __m128 f32x4Src)
     {
 #if defined(__GNUC__)
-        // separate loading and insertion for performance (33% faster in Cherry Trail)
+        // separate loading and insertion for performance (33% faster on Cherry Trail)
         __asm__ (
             "insertps $%c[field], %[src], %[dst]  \n\t"
             : [dst]"=x"(f32x4Dst)

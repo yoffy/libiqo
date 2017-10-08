@@ -520,8 +520,6 @@ namespace iqo {
         const float * coefs = &m_TablesX[0];
         const int32_t * indices = &m_IndicesX[0];
         ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
-        ptrdiff_t tableSize = tableWidth * m_NumUnrolledCoordsX;
-        int32_t numCoefsX = m_NumCoefsX;
 
         for ( ptrdiff_t dstX = begin; dstX < end; ++dstX ) {
             ptrdiff_t iCoef = (dstX % kVecStepX) + (dstX / kVecStepX % m_NumUnrolledCoordsX * tableWidth);
@@ -540,7 +538,7 @@ namespace iqo {
                 iCoef += kVecStepX;
             }
 
-            dst[dstX] = cvt_roundss_su8(nume/deno);
+            dst[dstX] = cvt_roundf32_u8(nume/deno);
         }
     }
 

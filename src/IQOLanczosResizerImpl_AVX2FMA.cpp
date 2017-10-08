@@ -668,12 +668,6 @@ namespace iqo {
 namespace iqo {
 
     template<>
-    bool LanczosResizerImpl_hasFeature<ArchAVX2FMA>()
-    {
-        return false;
-    }
-
-    template<>
     ILanczosResizerImpl * LanczosResizerImpl_new<ArchAVX2FMA>()
     {
         return NULL;
