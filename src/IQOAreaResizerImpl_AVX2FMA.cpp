@@ -102,7 +102,9 @@ namespace iqo {
         float * m_TablesX;              //!< aligned
         std::vector<float> m_TablesY;   //!< Area table * m_NumCoordsY
         std::vector<int32_t> m_IndicesX;
-        std::vector<float> m_Work;
+        int32_t m_WorkW;                //!< width of m_Work
+        std::vector<float> m_Work_;
+        float * m_Work;
     };
 
     template<>
@@ -196,8 +198,13 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * HWCap::getNumberOfProcs());
-        m_Work.resize(m_SrcW * HWCap::getNumberOfProcs());
+        m_WorkW = alignCeil<int32_t>(m_SrcW, kVecStepX);
+        int32_t workSize = m_WorkW * HWCap::getNumberOfProcs();
+        m_Work_.reserve(workSize + kVecStepX);
+        m_Work_.resize(workSize + kVecStepX);
+        intptr_t addrWork_ = intptr_t(&m_Work_[0]);
+        intptr_t addrWork  = alignCeil<intptr_t>(addrWork_, sizeof(*m_Work) * kVecStepX);
+        m_Work = reinterpret_cast<float *>(addrWork);
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
@@ -221,7 +228,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
+                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -235,7 +242,7 @@ namespace iqo {
         // main loop
 #pragma omp parallel for
         for ( int32_t dstY = 0; dstY < dstH; ++dstY ) {
-            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(
@@ -296,10 +303,10 @@ namespace iqo {
             }
 
             // dst[dstX] = nume;
-            _mm256_storeu_ps(&dst[dstX +  0], f32x8Nume0);
-            _mm256_storeu_ps(&dst[dstX +  8], f32x8Nume1);
-            _mm256_storeu_ps(&dst[dstX + 16], f32x8Nume2);
-            _mm256_storeu_ps(&dst[dstX + 24], f32x8Nume3);
+            _mm256_store_ps(&dst[dstX +  0], f32x8Nume0);
+            _mm256_store_ps(&dst[dstX +  8], f32x8Nume1);
+            _mm256_store_ps(&dst[dstX + 16], f32x8Nume2);
+            _mm256_store_ps(&dst[dstX + 24], f32x8Nume3);
         }
 
         for ( int32_t dstX = vecLen; dstX < dstW; dstX++ ) {
@@ -348,15 +355,10 @@ namespace iqo {
             __m256  f32x8Nume0  = _mm256_setzero_ps();
             __m256  f32x8Nume8  = _mm256_setzero_ps();
             //      srcOX       = floor(dstX / scale);
-            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+            __m256i s32x8SrcX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
+            __m256i s32x8SrcX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
-                //      srcX        = srcOX + i;
-                __m256i s32x8Offset = _mm256_set1_epi32(i);
-                __m256i s32x8SrcX0  = _mm256_add_epi32(s32x8SrcOX0, s32x8Offset);
-                __m256i s32x8SrcX8  = _mm256_add_epi32(s32x8SrcOX8, s32x8Offset);
-
                 //      nume       += src[srcX] * coefs[iCoef];
                 __m256  s32x8Src0   = _mm256_i32gather_ps(src, s32x8SrcX0, sizeof(float));
                 __m256  s32x8Src8   = _mm256_i32gather_ps(src, s32x8SrcX8, sizeof(float));
@@ -364,6 +366,10 @@ namespace iqo {
                 __m256  f32x8Coefs8 = _mm256_load_ps(&coefs[iCoef + 8]);
                 f32x8Nume0 = _mm256_fmadd_ps(s32x8Src0, f32x8Coefs0, f32x8Nume0);
                 f32x8Nume8 = _mm256_fmadd_ps(s32x8Src8, f32x8Coefs8, f32x8Nume8);
+
+                //      srcX        = srcOX + i;
+                s32x8SrcX0 = _mm256_add_epi32(s32x8SrcX0, _mm256_set1_epi32(1));
+                s32x8SrcX8 = _mm256_add_epi32(s32x8SrcX8, _mm256_set1_epi32(1));
 
                 iCoef += kVecStepX;
             }
