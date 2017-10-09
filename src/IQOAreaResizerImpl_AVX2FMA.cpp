@@ -198,12 +198,12 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_WorkW = alignCeil<int32_t>(m_SrcW, kVecStepX);
+        m_WorkW = alignCeil<int32_t>(m_SrcW, kVecStepY);
         int32_t workSize = m_WorkW * HWCap::getNumberOfProcs();
-        m_Work_.reserve(workSize + kVecStepX);
-        m_Work_.resize(workSize + kVecStepX);
+        m_Work_.reserve(workSize + kVecStepY);
+        m_Work_.resize(workSize + kVecStepY);
         intptr_t addrWork_ = intptr_t(&m_Work_[0]);
-        intptr_t addrWork  = alignCeil<intptr_t>(addrWork_, sizeof(*m_Work) * kVecStepX);
+        intptr_t addrWork  = alignCeil<intptr_t>(addrWork_, sizeof(*m_Work) * kVecStepY);
         m_Work = reinterpret_cast<float *>(addrWork);
 
         // calc indices
@@ -269,6 +269,10 @@ namespace iqo {
     ) {
         int32_t numCoefsY = m_NumCoefsY;
         int32_t vecLen = alignFloor<int32_t>(dstW, kVecStepY);
+
+#if defined(__GNUC__)
+        dst = reinterpret_cast<float *>(__builtin_assume_aligned(dst, sizeof(*dst)*kVecStepY));
+#endif
 
         for ( int32_t dstX = 0; dstX < vecLen; dstX += kVecStepY ) {
             //     nume         = 0;
