@@ -352,6 +352,7 @@ namespace iqo {
         int32_t numCoefsX = m_NumCoefsX;
         int32_t dstW = m_DstW;
         int32_t vecLen = alignFloor<int32_t>(dstW, kVecStepX);
+        LinearIteratorAVX2 iSrcOX(dstW, m_SrcW);
 
         ptrdiff_t iCoef = 0;
         for ( int32_t dstX = 0; dstX < vecLen; dstX += kVecStepX ) {
@@ -359,8 +360,8 @@ namespace iqo {
             __m256  f32x8Nume0  = _mm256_setzero_ps();
             __m256  f32x8Nume8  = _mm256_setzero_ps();
             //      srcOX       = floor(dstX / scale);
-            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+            __m256i s32x8SrcOX0 = *iSrcOX++;
+            __m256i s32x8SrcOX8 = *iSrcOX++;
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 //      srcX        = srcOX + i;
