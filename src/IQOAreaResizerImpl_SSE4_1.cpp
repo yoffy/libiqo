@@ -12,6 +12,7 @@
 #endif
 
 #include "math.hpp"
+#include "util.hpp"
 #include "IQOHWCap.hpp"
 
 
@@ -78,8 +79,10 @@ namespace iqo {
     class AreaResizerImpl<ArchSSE4_1> : public IAreaResizerImpl
     {
     public:
+        //! Constructor
+        AreaResizerImpl();
         //! Destructor
-        virtual ~AreaResizerImpl() {}
+        virtual ~AreaResizerImpl();
 
         //! Construct
         virtual void init(
@@ -123,7 +126,6 @@ namespace iqo {
         std::vector<float> m_TablesY;   //!< Area table * m_NumCoordsY
         std::vector<int32_t> m_IndicesX;
         int32_t m_WorkW;                //!< width of m_Work
-        std::vector<float> m_Work_;
         float * m_Work;
     };
 
@@ -134,7 +136,18 @@ namespace iqo {
     }
 
 
-    // Constructor
+    //! Constructor
+    AreaResizerImpl<ArchSSE4_1>::AreaResizerImpl()
+    {
+        m_Work = NULL;
+    }
+    // Destructor
+    AreaResizerImpl<ArchSSE4_1>::~AreaResizerImpl()
+    {
+        alignedFree(m_Work);
+    }
+
+    // Construct
     void AreaResizerImpl<ArchSSE4_1>::init(
         size_t srcW, size_t srcH,
         size_t dstW, size_t dstH
@@ -220,11 +233,7 @@ namespace iqo {
         // allocate workspace
         m_WorkW = alignCeil<int32_t>(m_SrcW, kVecStepY);
         int32_t workSize = m_WorkW * HWCap::getNumberOfProcs();
-        m_Work_.reserve(workSize + kVecStepY);
-        m_Work_.resize(workSize + kVecStepY);
-        intptr_t addrWork_ = intptr_t(&m_Work_[0]);
-        intptr_t addrWork  = alignCeil<intptr_t>(addrWork_, sizeof(*m_Work) * kVecStepY);
-        m_Work = reinterpret_cast<float *>(addrWork);
+        m_Work = alignedAlloc<float>(workSize, sizeof(*m_Work) * kVecStepY);
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
