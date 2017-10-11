@@ -359,10 +359,15 @@ namespace iqo {
             __m256  f32x8Nume0  = _mm256_setzero_ps();
             __m256  f32x8Nume8  = _mm256_setzero_ps();
             //      srcOX       = floor(dstX / scale);
-            __m256i s32x8SrcX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
-            __m256i s32x8SrcX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
+            __m256i s32x8SrcOX0 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 0]);
+            __m256i s32x8SrcOX8 = _mm256_loadu_si256((const __m256i*)&indices[dstX + 8]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
+                //      srcX        = srcOX + i;
+                __m256i s32x8Offset = _mm256_set1_epi32(i);
+                __m256i s32x8SrcX0  = _mm256_add_epi32(s32x8SrcOX0, s32x8Offset);
+                __m256i s32x8SrcX8  = _mm256_add_epi32(s32x8SrcOX8, s32x8Offset);
+
                 //      nume       += src[srcX] * coefs[iCoef];
                 __m256  s32x8Src0   = _mm256_i32gather_ps(src, s32x8SrcX0, sizeof(float));
                 __m256  s32x8Src8   = _mm256_i32gather_ps(src, s32x8SrcX8, sizeof(float));
@@ -370,10 +375,6 @@ namespace iqo {
                 __m256  f32x8Coefs8 = _mm256_load_ps(&coefs[iCoef + 8]);
                 f32x8Nume0 = _mm256_fmadd_ps(s32x8Src0, f32x8Coefs0, f32x8Nume0);
                 f32x8Nume8 = _mm256_fmadd_ps(s32x8Src8, f32x8Coefs8, f32x8Nume8);
-
-                //      srcX        = srcOX + i;
-                s32x8SrcX0 = _mm256_add_epi32(s32x8SrcX0, _mm256_set1_epi32(1));
-                s32x8SrcX8 = _mm256_add_epi32(s32x8SrcX8, _mm256_set1_epi32(1));
 
                 iCoef += kVecStepX;
             }
