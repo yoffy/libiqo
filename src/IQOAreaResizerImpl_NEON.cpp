@@ -12,28 +12,11 @@
 #endif
 
 #include "math.hpp"
+#include "util.hpp"
 #include "IQOHWCap.hpp"
 
 
 namespace {
-
-    int getNumberOfProcs()
-    {
-#if defined(_OPENMP)
-        return omp_get_num_procs();
-#else
-        return 1;
-#endif
-    }
-
-    int getThreadNumber()
-    {
-#if defined(_OPENMP)
-        return omp_get_thread_num();
-#else
-        return 0;
-#endif
-    }
 
     float32x4_t gather(const float * src, int32x4_t indices)
     {
@@ -88,8 +71,10 @@ namespace iqo {
     class AreaResizerImpl<ArchNEON> : public IAreaResizerImpl
     {
     public:
+        //! Constructor
+        AreaResizerImpl();
         //! Destructor
-        virtual ~AreaResizerImpl() {}
+        virtual ~AreaResizerImpl();
 
         //! Construct
         virtual void init(
@@ -132,7 +117,8 @@ namespace iqo {
         float * m_TablesX;              //!< aligned
         std::vector<float> m_TablesY;   //!< Area table * m_NumCoordsY
         std::vector<int32_t> m_IndicesX;
-        std::vector<float> m_Work;
+        int32_t m_WorkW;                //!< width of m_Work
+        float * m_Work;
     };
 
     template<>
@@ -142,7 +128,18 @@ namespace iqo {
     }
 
 
-    // Constructor
+    //! Constructor
+    AreaResizerImpl<ArchNEON>::AreaResizerImpl()
+    {
+        m_Work = NULL;
+    }
+    // Destructor
+    AreaResizerImpl<ArchNEON>::~AreaResizerImpl()
+    {
+        alignedFree(m_Work);
+    }
+
+    // Construct
     void AreaResizerImpl<ArchNEON>::init(
         size_t srcW, size_t srcH,
         size_t dstW, size_t dstH
@@ -226,8 +223,9 @@ namespace iqo {
         }
 
         // allocate workspace
-        m_Work.reserve(m_SrcW * getNumberOfProcs());
-        m_Work.resize(m_SrcW * getNumberOfProcs());
+        m_WorkW = alignCeil<int32_t>(m_SrcW, kVecStepY);
+        int32_t workSize = m_WorkW * HWCap::getNumberOfProcs();
+        m_Work = alignedAlloc<float>(workSize, sizeof(*m_Work) * kVecStepY);
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
@@ -251,7 +249,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -265,7 +263,7 @@ namespace iqo {
         // main loop
 #pragma omp parallel for
         for ( int32_t dstY = 0; dstY < dstH; ++dstY ) {
-            float * work = &m_Work[getThreadNumber() * ptrdiff_t(srcW)];
+            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH);
             const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(
@@ -292,6 +290,10 @@ namespace iqo {
     ) {
         int32_t numCoefsY = m_NumCoefsY;
         int32_t vecLen = alignFloor<int32_t>(dstW, kVecStepY);
+
+#if defined(__GNUC__)
+        dst = reinterpret_cast<float *>(__builtin_assume_aligned(dst, sizeof(*dst)*kVecStepY));
+#endif
 
         for ( int32_t dstX = 0; dstX < vecLen; dstX += kVecStepY ) {
             //          nume        = 0;
