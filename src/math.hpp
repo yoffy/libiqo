@@ -33,6 +33,7 @@ namespace iqo {
             return (v + (alignment - 1)) / alignment * alignment;
         }
 
+        //! greatest common divisor
         template<typename T>
         inline T gcd(T a, T b)
         {
@@ -47,6 +48,7 @@ namespace iqo {
             return b;
         }
 
+        //! least common multiple
         inline int64_t lcm(ptrdiff_t a, ptrdiff_t b)
         {
             return int64_t(a) / gcd(a, b) * b;
