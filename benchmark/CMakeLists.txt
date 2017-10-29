@@ -1,7 +1,7 @@
 # benchmak
 #
 # Optional Variables:
-#     OPENCV_DIR      Path to OpenCV. It is parent directory of include directory.
+#     OpenCV_DIR      Path to share/OpenCV. It is parent directory of OpenCVConfig.cmake.
 #     IPPROOT         Path to Intel IPP. Set ippvars.sh (ippvars.bat in Windows)
 #     IPP_TARGET_ARCH Architecture for Intel IPP. (ex. intel64)
 
