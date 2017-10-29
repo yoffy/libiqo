@@ -18,49 +18,36 @@
 
 namespace {
 
-    float32x4_t gather(const float * src, int32x4_t indices)
+    //! (uint8_t)min(255, max(0, round(v))) in Q7
+    uint8_t cvt_roundu16q7_u8(uint16_t v)
     {
-        float32x4_t v = float32x4_t();
-        v = vld1q_lane_f32(&src[vgetq_lane_s32(indices, 0)], v, 0);
-        v = vld1q_lane_f32(&src[vgetq_lane_s32(indices, 1)], v, 1);
-        v = vld1q_lane_f32(&src[vgetq_lane_s32(indices, 2)], v, 2);
-        v = vld1q_lane_f32(&src[vgetq_lane_s32(indices, 3)], v, 3);
+        uint16_t k0_5 = 1 << 6; // 0.5 in Q7
+        return uint8_t((v + k0_5) >> 7);
+    }
+
+
+    //! (uint8_t)min(255, max(0, round(v))) in Q7
+    uint8x16_t cvt_roundu16q7_u8(uint16x8_t lo, uint16x8_t hi)
+    {
+        // Round = (uint8_t)round(x / (1<<7))
+        uint8x8_t u8x8Round0 = vqrshrn_n_u16(lo, 7);
+        uint8x8_t u8x8Round1 = vqrshrn_n_u16(hi, 7);
+
+        return vcombine_u8(u8x8Round0, u8x8Round1);
+    }
+
+    int16x8_t gather(const int16_t * src, uint16x8_t indices)
+    {
+        int16x8_t v = int16x8_t();
+        v = vld1q_lane_s16(&src[vgetq_lane_u16(indices, 0)], v, 0);
+        v = vld1q_lane_s16(&src[vgetq_lane_u16(indices, 1)], v, 1);
+        v = vld1q_lane_s16(&src[vgetq_lane_u16(indices, 2)], v, 2);
+        v = vld1q_lane_s16(&src[vgetq_lane_u16(indices, 3)], v, 3);
+        v = vld1q_lane_s16(&src[vgetq_lane_u16(indices, 4)], v, 4);
+        v = vld1q_lane_s16(&src[vgetq_lane_u16(indices, 5)], v, 5);
+        v = vld1q_lane_s16(&src[vgetq_lane_u16(indices, 6)], v, 6);
+        v = vld1q_lane_s16(&src[vgetq_lane_u16(indices, 7)], v, 7);
         return v;
-    }
-
-    float round_f32(float v)
-    {
-        // http://developer.apple.com/legacy/mac/library/documentation/Performance/Conceptual/Accelerate_sse_migration/migration_sse_translation/migration_sse_translation.html#//apple_ref/doc/uid/TP40002729-CH248-279676
-        float32x2_t v1_5p23f = { 0x1.5p23f, 0x1.5p23f };
-        float32x2_t vSrc = float32x2_t();
-        vSrc = vset_lane_f32(v, vSrc, 0);
-        float32x2_t vRound = vsub_f32(vadd_f32(vSrc, v1_5p23f), v1_5p23f);
-        return vget_lane_f32(vRound, 0);
-    }
-
-    float32x4_t round_f32(float32x4_t v)
-    {
-        // http://developer.apple.com/legacy/mac/library/documentation/Performance/Conceptual/Accelerate_sse_migration/migration_sse_translation/migration_sse_translation.html#//apple_ref/doc/uid/TP40002729-CH248-279676
-        float32x4_t v1_5p23f = { 0x1.5p23f, 0x1.5p23f, 0x1.5p23f, 0x1.5p23f };
-        return vsubq_f32(vaddq_f32(v, v1_5p23f), v1_5p23f);
-    }
-
-    uint8_t cvt_roundf32_u8(float v)
-    {
-        return uint8_t(iqo::clamp(0.0f, 255.0f, round_f32(v)));
-    }
-
-    uint8x8_t cvt_roundf32_u8(float32x4_t lo, float32x4_t hi)
-    {
-        float32x4_t f32x4Round0 = round_f32(lo);
-        float32x4_t f32x4Round1 = round_f32(hi);
-        int32x4_t   s32x4Round0 = vcvtq_s32_f32(f32x4Round0);
-        int32x4_t   s32x4Round1 = vcvtq_s32_f32(f32x4Round1);
-        uint16x4_t  u16x4Round0 = vqmovun_s32(s32x4Round0);
-        uint16x4_t  u16x4Round1 = vqmovun_s32(s32x4Round1);
-        uint16x8_t  u16x8Round  = vcombine_u16(u16x4Round0, u16x4Round1);
-        uint8x8_t   u8x8Round   = vqmovn_u16(u16x8Round);
-        return u8x8Round;
     }
 
 }
@@ -89,19 +76,32 @@ namespace iqo {
         );
 
     private:
+        //! dst[i] = src[i] * kBias / srcSum (src will be broken)
+        void adjustCoefs(
+            float * srcBegin, float * srcEnd,
+            float srcSum,
+            uint16_t bias,
+            int16_t * dst
+        );
+
         void resizeYmain(
             ptrdiff_t srcSt, const uint8_t * src,
-            int32_t dstW, float * dst,
+            int32_t dstW, int16_t * dst,
             int32_t srcOY,
-            const float * coefs
+            const int16_t * coefs
         );
-        void resizeX(const float * src, uint8_t * dst);
-        void resizeXmain(const float * src, uint8_t * dst);
+        void resizeX(const int16_t * src, uint8_t * dst);
+        void resizeXmain(const int16_t * src, uint8_t * dst);
 
         enum {
+            kBiasXBit   = 15,
+            kBiasX      = 1 << kBiasXBit,
+            kBiasYBit   = 7, // it can be 8, but VQRDMULH is signed
+            kBiasY      = 1 << kBiasYBit,
+
             //! for SIMD
-            kVecStepX  =  8, //!< float32x4_t x 2
-            kVecStepY  = 16, //!< float32x4_t x 4
+            kVecStepX  = 16, //!< int16x8 x 2
+            kVecStepY  = 16, //!< int16x8 x 2
         };
         int32_t m_SrcW;
         int32_t m_SrcH;
@@ -113,12 +113,12 @@ namespace iqo {
         int32_t m_NumUnrolledCoordsX;
         int32_t m_TablesXWidth;
         int32_t m_NumCoordsY;
-        std::vector<float> m_TablesX_;  //!< Area table * m_NumCoordsX (unrolled)
-        float * m_TablesX;              //!< aligned
-        std::vector<float> m_TablesY;   //!< Area table * m_NumCoordsY
-        std::vector<int32_t> m_IndicesX;
-        int32_t m_WorkW;                //!< width of m_Work
-        float * m_Work;
+        std::vector<int16_t> m_TablesX_;    //!< Area table * m_NumCoordsX (unrolled)
+        int16_t * m_TablesX;                //!< aligned
+        std::vector<int16_t> m_TablesY;     //!< Area table * m_NumCoordsY
+        std::vector<uint16_t> m_IndicesX;
+        int32_t m_WorkW;                    //!< width of m_Work
+        int16_t * m_Work;
     };
 
     template<>
@@ -170,18 +170,17 @@ namespace iqo {
         m_TablesX_.resize(alignedTblXSize);
         intptr_t addrTablesX_ = intptr_t(&m_TablesX_[0]);
         intptr_t addrTablesX  = alignCeil<intptr_t>(addrTablesX_, sizeof(*m_TablesX) * kVecStepX);
-        m_TablesX = reinterpret_cast<float *>(addrTablesX);
+        m_TablesX = reinterpret_cast<int16_t *>(addrTablesX);
         size_t tblYSize = size_t(m_NumCoefsY) * m_NumCoordsY;
         m_TablesY.reserve(tblYSize);
         m_TablesY.resize(tblYSize);
 
-        std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
+        std::vector<int16_t> tablesX(m_NumCoefsX * m_NumCoordsX);
+        std::vector<float> coefsX(m_NumCoefsX);
         for ( int32_t dstX = 0; dstX < m_NumCoordsX; ++dstX ) {
-            float * table = &tablesX[dstX * m_NumCoefsX];
-            float sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, table);
-            for ( int32_t i = 0; i < m_NumCoefsX; ++i ) {
-                table[i] /= sumCoefs;
-            }
+            int16_t * table = &tablesX[dstX * m_NumCoefsX];
+            float sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, &coefsX[0]);
+            adjustCoefs(&coefsX[0], &coefsX[m_NumCoefsX], sumCoefs, kBiasX, &table[0]);
         }
 
         // unroll X coefs
@@ -214,27 +213,54 @@ namespace iqo {
             }
         }
 
+        std::vector<float>    coefsY(m_NumCoefsY);
         for ( int32_t dstY = 0; dstY < m_NumCoordsY; ++dstY ) {
-            float * table = &m_TablesY[dstY * m_NumCoefsY];
-            float sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, table);
-            for ( int32_t i = 0; i < m_NumCoefsY; ++i ) {
-                table[i] /= sumCoefs;
-            }
+            int16_t * table = &m_TablesY[dstY * m_NumCoefsY];
+            float sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, &coefsY[0]);
+            adjustCoefs(&coefsY[0], &coefsY[m_NumCoefsY], sumCoefs, kBiasY, &table[0]);
         }
 
         // allocate workspace
         m_WorkW = alignCeil<int32_t>(m_SrcW, kVecStepY);
         int32_t workSize = m_WorkW * HWCap::getNumberOfProcs();
-        m_Work = alignedAlloc<float>(workSize, sizeof(*m_Work) * kVecStepY);
+        m_Work = alignedAlloc<int16_t>(workSize, sizeof(*m_Work) * kVecStepY);
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
         m_IndicesX.reserve(alignedDstW);
         m_IndicesX.resize(alignedDstW);
         for ( int32_t dstX = 0; dstX < alignedDstW; ++dstX ) {
-            //      srcOX = floor(dstX / scale)
-            int32_t srcOX = int32_t(int64_t(dstX) * rSrcW / rDstW);
+            //       srcOX = floor(dstX / scale)
+            uint16_t srcOX = uint16_t(int64_t(dstX) * rSrcW / rDstW);
             m_IndicesX[dstX] = srcOX;
+        }
+    }
+
+    void AreaResizerImpl<ArchNEON>::adjustCoefs(
+        float * __restrict srcBegin, float * __restrict srcEnd,
+        float srcSum,
+        uint16_t bias,
+        int16_t * __restrict dst)
+    {
+        const int k1_0 = bias;
+        size_t numCoefs = srcEnd - srcBegin;
+        int dstSum = 0;
+
+        for ( size_t i = 0; i < numCoefs; ++i ) {
+            dst[i] = int16_t(round(srcBegin[i] * bias / srcSum));
+            dstSum += dst[i];
+        }
+        while ( dstSum < k1_0 ) {
+            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[numCoefs]));
+            dst[i]++;
+            srcBegin[i] = 0;
+            dstSum++;
+        }
+        while ( dstSum > k1_0 ) {
+            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[numCoefs]));
+            dst[i]--;
+            srcBegin[i] = 0;
+            dstSum--;
         }
     }
 
@@ -249,7 +275,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
+                int16_t * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -258,14 +284,14 @@ namespace iqo {
             return;
         }
 
-        const float * tablesY = &m_TablesY[0];
+        const int16_t * tablesY = &m_TablesY[0];
 
         // main loop
 #pragma omp parallel for
         for ( int32_t dstY = 0; dstY < dstH; ++dstY ) {
-            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
+            int16_t * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH);
-            const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
+            const int16_t * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(
                 srcSt, &src[0],
                 srcW, work,
@@ -284,78 +310,60 @@ namespace iqo {
     //! @param coefs  The coefficients
     void AreaResizerImpl<ArchNEON>::resizeYmain(
         ptrdiff_t srcSt, const uint8_t * src,
-        int32_t dstW, float * __restrict dst,
+        int32_t dstW, int16_t * __restrict dst,
         int32_t srcOY,
-        const float * coefs
+        const int16_t * coefs
     ) {
         int32_t numCoefsY = m_NumCoefsY;
         int32_t vecLen = alignFloor<int32_t>(dstW, kVecStepY);
 
 #if defined(__GNUC__)
-        dst = reinterpret_cast<float *>(__builtin_assume_aligned(dst, sizeof(*dst)*kVecStepY));
+        dst = reinterpret_cast<int16_t *>(__builtin_assume_aligned(dst, sizeof(*dst)*kVecStepY));
 #endif
 
         for ( int32_t dstX = 0; dstX < vecLen; dstX += kVecStepY ) {
             //          nume        = 0;
-            float32x4_t f32x4Nume0  = vdupq_n_f32(0);
-            float32x4_t f32x4Nume1  = vdupq_n_f32(0);
-            float32x4_t f32x4Nume2  = vdupq_n_f32(0);
-            float32x4_t f32x4Nume3  = vdupq_n_f32(0);
+            int16x8_t   s16x8Nume0  = vdupq_n_s16(0);
+            int16x8_t   s16x8Nume1  = vdupq_n_s16(0);
 
-            for ( int32_t i = 0; i < numCoefsY; ++i ) {
+            for ( int16_t i = 0; i < numCoefsY; ++i ) {
                 int32_t     srcY        = srcOY + i;
 
                 //          coef        = coefs[i];
-                float32x4_t f32x4Coef   = vdupq_n_f32(coefs[i]);
+                int16x8_t   s16x8Coef   = vdupq_n_s16(coefs[i]);
 
                 //          nume       += src[dstX + srcSt*srcY] * coef;
                 uint8x16_t  u8x16Src    = vld1q_u8(&src[dstX + srcSt*srcY]);
-                uint16x8_t  u16x8Src0   = vmovl_u8(vget_low_u8(u8x16Src));
-                uint16x8_t  u16x8Src1   = vmovl_u8(vget_high_u8(u8x16Src));
-                uint32x4_t  u32x4Src0   = vmovl_u16(vget_low_u16(u16x8Src0));
-                uint32x4_t  u32x4Src1   = vmovl_u16(vget_high_u16(u16x8Src0));
-                uint32x4_t  u32x4Src2   = vmovl_u16(vget_low_u16(u16x8Src1));
-                uint32x4_t  u32x4Src3   = vmovl_u16(vget_high_u16(u16x8Src1));
-                float32x4_t f32x4Src0   = vcvtq_f32_u32(u32x4Src0);
-                float32x4_t f32x4Src1   = vcvtq_f32_u32(u32x4Src1);
-                float32x4_t f32x4Src2   = vcvtq_f32_u32(u32x4Src2);
-                float32x4_t f32x4Src3   = vcvtq_f32_u32(u32x4Src3);
-                f32x4Nume0 = vmlaq_f32(f32x4Nume0, f32x4Src0, f32x4Coef);
-                f32x4Nume1 = vmlaq_f32(f32x4Nume1, f32x4Src1, f32x4Coef);
-                f32x4Nume2 = vmlaq_f32(f32x4Nume2, f32x4Src2, f32x4Coef);
-                f32x4Nume3 = vmlaq_f32(f32x4Nume3, f32x4Src3, f32x4Coef);
+                int16x8_t   s16x8Src0   = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(u8x16Src)));
+                int16x8_t   s16x8Src1   = vreinterpretq_s16_u16(vmovl_u8(vget_high_u8(u8x16Src)));
+                s16x8Nume0 = vmlaq_s16(s16x8Nume0, s16x8Src0, s16x8Coef);
+                s16x8Nume1 = vmlaq_s16(s16x8Nume1, s16x8Src1, s16x8Coef);
             }
 
             // dst[dstX] = nume;
-            float32x4_t f32x4Dst0 = f32x4Nume0;
-            float32x4_t f32x4Dst1 = f32x4Nume1;
-            float32x4_t f32x4Dst2 = f32x4Nume2;
-            float32x4_t f32x4Dst3 = f32x4Nume3;
-            vst1q_f32(&dst[dstX +  0], f32x4Dst0);
-            vst1q_f32(&dst[dstX +  4], f32x4Dst1);
-            vst1q_f32(&dst[dstX +  8], f32x4Dst2);
-            vst1q_f32(&dst[dstX + 12], f32x4Dst3);
+            vst1q_s16(&dst[dstX + 0], s16x8Nume0);
+            vst1q_s16(&dst[dstX + 8], s16x8Nume1);
         }
 
         for ( int32_t dstX = vecLen; dstX < dstW; dstX++ ) {
-            float nume = 0;
+            int nume = 0;
 
-            for ( int32_t i = 0; i < numCoefsY; ++i ) {
+            for ( int16_t i = 0; i < numCoefsY; ++i ) {
                 int32_t srcY = srcOY + i;
-                float   coef = coefs[i];
+                int16_t coef = coefs[i];
                 nume += src[dstX + srcSt * srcY] * coef;
             }
 
-            dst[dstX] = nume;
+            dst[dstX] = int16_t(nume);
         }
     }
 
-    void AreaResizerImpl<ArchNEON>::resizeX(const float * src, uint8_t * __restrict dst)
+    void AreaResizerImpl<ArchNEON>::resizeX(const int16_t * src, uint8_t * __restrict dst)
     {
         if ( m_SrcW == m_DstW ) {
             int32_t dstW = m_DstW;
             for ( int32_t dstX = 0; dstX < dstW; dstX++ ) {
-                dst[dstX] = cvt_roundf32_u8(src[dstX]);
+                dst[dstX] = cvt_roundu16q7_u8(src[dstX]);
             }
             return;
         }
@@ -367,10 +375,10 @@ namespace iqo {
     //!
     //! @param src    A row of source
     //! @param dst    A row of destination
-    void AreaResizerImpl<ArchNEON>::resizeXmain(const float * src, uint8_t * __restrict dst)
+    void AreaResizerImpl<ArchNEON>::resizeXmain(const int16_t * src, uint8_t * __restrict dst)
     {
-        const float * coefs = &m_TablesX[0];
-        const int32_t * indices = &m_IndicesX[0];
+        const int16_t * coefs = &m_TablesX[0];
+        const uint16_t * indices = &m_IndicesX[0];
         ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
         ptrdiff_t tableSize = tableWidth * m_NumUnrolledCoordsX;
         int32_t numCoefsX = m_NumCoefsX;
@@ -380,34 +388,37 @@ namespace iqo {
         ptrdiff_t iCoef = 0;
         for ( int32_t dstX = 0; dstX < vecLen; dstX += kVecStepX ) {
             //          nume        = 0;
-            float32x4_t f32x4Nume0  = vdupq_n_f32(0);
-            float32x4_t f32x4Nume1  = vdupq_n_f32(0);
+            int16x8_t   s16x8Nume0  = vdupq_n_s16(0);
+            int16x8_t   s16x8Nume1  = vdupq_n_s16(0);
             //          srcOX       = floor(dstX / scale);
-            int32x4_t   s32x4SrcOX0 = vld1q_s32(&indices[dstX + 0]);
-            int32x4_t   s32x4SrcOX1 = vld1q_s32(&indices[dstX + 4]);
+            uint16x8_t  u16x8SrcOX0 = vld1q_u16(&indices[dstX + 0]);
+            uint16x8_t  u16x8SrcOX1 = vld1q_u16(&indices[dstX + 8]);
 
-            for ( int32_t i = 0; i < numCoefsX; ++i ) {
-                //        srcX        = srcOX + i;
-                int32x4_t s32x4Offset = vdupq_n_s32(i);
-                int32x4_t s32x4SrcX0  = vaddq_s32(s32x4SrcOX0, s32x4Offset);
-                int32x4_t s32x4SrcX1  = vaddq_s32(s32x4SrcOX1, s32x4Offset);
+            for ( int16_t i = 0; i < numCoefsX; ++i ) {
+                //          srcX        = srcOX + i;
+                uint16x8_t  u16x8Offset = vdupq_n_u16(i);
+                uint16x8_t  u16x8SrcX0  = vaddq_u16(u16x8SrcOX0, u16x8Offset);
+                uint16x8_t  u16x8SrcX1  = vaddq_u16(u16x8SrcOX1, u16x8Offset);
 
-                //           nume       += src[srcX] * coefs[iCoef];
-                float32x4_t  f32x4Src0   = gather(src, s32x4SrcX0);
-                float32x4_t  f32x4Src1   = gather(src, s32x4SrcX1);
-                float32x4_t  f32x4Coefs0 = vld1q_f32(&coefs[iCoef + 0]);
-                float32x4_t  f32x4Coefs1 = vld1q_f32(&coefs[iCoef + 4]);
-                f32x4Nume0 = vmlaq_f32(f32x4Nume0, f32x4Src0, f32x4Coefs0);
-                f32x4Nume1 = vmlaq_f32(f32x4Nume1, f32x4Src1, f32x4Coefs1);
+                //          nume       += src[srcX] * coefs[iCoef];
+                int16x8_t   s16x8Src0   = gather(src, u16x8SrcX0);
+                int16x8_t   s16x8Src1   = gather(src, u16x8SrcX1);
+                int16x8_t   s16x8Coefs0 = vld1q_s16(&coefs[iCoef + 0]);
+                int16x8_t   s16x8Coefs1 = vld1q_s16(&coefs[iCoef + 8]);
+                //                        (src*kBiasY * coef*kBiasX) / kBiasX
+                int16x8_t   s16x8iNume0 = vqrdmulhq_s16(s16x8Src0, s16x8Coefs0); // 16bit of 33bit???
+                int16x8_t   s16x8iNume1 = vqrdmulhq_s16(s16x8Src1, s16x8Coefs1);
+                s16x8Nume0 = vaddq_s16(s16x8Nume0, s16x8iNume0);
+                s16x8Nume1 = vaddq_s16(s16x8Nume1, s16x8iNume1);
 
                 iCoef += kVecStepX;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(nume));
-            float32x4_t  f32x4Dst0     = f32x4Nume0;
-            float32x4_t  f32x4Dst1     = f32x4Nume1;
-            uint8x8_t    u8x8Dst       = cvt_roundf32_u8(f32x4Dst0, f32x4Dst1);
-            vst1_u8(&dst[dstX], u8x8Dst);
+            uint16x8_t  u16x8Dst0   = vreinterpretq_u16_s16(s16x8Nume0);
+            uint16x8_t  u16x8Dst1   = vreinterpretq_u16_s16(s16x8Nume1);
+            uint8x16_t  u8x16Dst    = cvt_roundu16q7_u8(u16x8Dst0, u16x8Dst1);
+            vst1q_u8(&dst[dstX], u8x16Dst);
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
@@ -417,18 +428,18 @@ namespace iqo {
 
         for ( int32_t dstX = vecLen; dstX < dstW; ++dstX ) {
             int32_t srcOX = indices[dstX];
-            float sum = 0;
+            int     sum = 0;
 
             // calc index of coefs from unrolled table
             iCoef = (dstX % kVecStepX) + (dstX / kVecStepX % m_NumUnrolledCoordsX * tableWidth);
 
-            for ( int32_t i = 0; i < numCoefsX; ++i ) {
+            for ( int16_t i = 0; i < numCoefsX; ++i ) {
                 int32_t srcX = srcOX + i;
-                sum   += src[srcX] * coefs[iCoef];
+                sum   += (src[srcX] * coefs[iCoef]) / kBiasX;
                 iCoef += kVecStepX;
             }
 
-            dst[dstX] = cvt_roundf32_u8(sum);
+            dst[dstX] = cvt_roundu16q7_u8(uint16_t(sum));
         }
     }
 
