@@ -18,57 +18,50 @@
 
 namespace {
 
-    //! f32x4Dst[dstField] = f32x4Src[0]
-    template<int dstField>
-    __m128 insert_ps(__m128 f32x4Dst, __m128 f32x4Src)
+    //! (uint8_t)min(255, max(0, round(v))) in Q7
+    uint8_t cvt_roundu16q7_su8(uint16_t v)
     {
-#if defined(__GNUC__)
-        // separate loading and insertion for performance (33% faster on Cherry Trail)
-        __asm__ (
-            "insertps $%c[field], %[src], %[dst]  \n\t"
-            : [dst]"=x"(f32x4Dst)
-            : [dst]"x"(f32x4Dst), [src]"x"(f32x4Src), [field]"i"(dstField << 4)
-            :
-        );
-        return f32x4Dst;
-#else
-        return _mm_insert_ps(f32x4Dst, f32x4Src, dstField << 4);
-#endif
+        uint16_t k0_5 = 1 << 6; // 0.5 in Q7
+        return uint8_t((v + k0_5) >> 7);
+    }
+
+    //! (uint8_t)min(255, max(0, round(v))) in Q7
+    __m128i cvt_roundu16q7_epu8(__m128i lo, __m128i hi)
+    {
+        __m128i u16x8k0_5 = _mm_set1_epi16(1 << 6); // 0.5 in Q7
+
+        // v = (x + k0_5) >> 7
+        __m128i u16x8v0 = _mm_srli_epi16(_mm_add_epi16(lo, u16x8k0_5), 7);
+        __m128i u16x8v1 = _mm_srli_epi16(_mm_add_epi16(hi, u16x8k0_5), 7);
+
+        // return (uint8_t)v
+        return _mm_packus_epi16(u16x8v0, u16x8v1);
     }
 
     //! f32x4Dst[dstField] = srcPtr[s32x4Indices[srcField]]
-    __m128 gather_ps(const float * f32Src, __m128i s32x4Indices)
+    __m128i gather_epu16(const uint16_t * u16Src, __m128i u16x8Indices)
     {
         // MOVQ is very faster than PEXTRD/Q in Silvermont
-        uint64_t s32x2Indices0 = _mm_cvtsi128_si64(s32x4Indices);
-        uint64_t s32x2Indices1 = _mm_extract_epi64(s32x4Indices, 1);
-        ptrdiff_t i0 = int32_t(s32x2Indices0);
-        ptrdiff_t i1 = int32_t(s32x2Indices0 >> 32);
-        ptrdiff_t i2 = int32_t(s32x2Indices1);
-        ptrdiff_t i3 = int32_t(s32x2Indices1 >> 32);
-        __m128 f32x4V = _mm_load_ss(&f32Src[i0]);
-        f32x4V = insert_ps<1>(f32x4V, _mm_load_ss(&f32Src[i1]));
-        f32x4V = insert_ps<2>(f32x4V, _mm_load_ss(&f32Src[i2]));
-        f32x4V = insert_ps<3>(f32x4V, _mm_load_ss(&f32Src[i3]));
-        return f32x4V;
-    }
-
-    uint8_t cvt_roundss_su8(float v)
-    {
-        __m128  f32x1V     = _mm_set_ss(v);
-        __m128  f32x1Round = _mm_round_ss(f32x1V, f32x1V, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        int32_t s32x1Round = _mm_cvtss_si32(f32x1Round);
-        return uint8_t(iqo::clamp(0, 255, s32x1Round));
-    }
-
-    __m128i cvt_roundps_epu8(__m128 lo, __m128 hi)
-    {
-        __m128  f32x4Round0 = _mm_round_ps(lo, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        __m128  f32x4Round1 = _mm_round_ps(hi, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-        __m128i s32x4Round0 = _mm_cvtps_epi32(f32x4Round0);
-        __m128i s32x4Round1 = _mm_cvtps_epi32(f32x4Round1);
-        __m128i u16x8Round  = _mm_packus_epi32(s32x4Round0, s32x4Round1);
-        return _mm_packus_epi16(u16x8Round, u16x8Round);
+        uint64_t u16x4Indices0 = _mm_cvtsi128_si64(u16x8Indices);
+        uint64_t u16x4Indices1 = _mm_extract_epi64(u16x8Indices, 1);
+        ptrdiff_t i0 = uint16_t(u16x4Indices0);
+        ptrdiff_t i1 = uint16_t(u16x4Indices0 >> 16);
+        ptrdiff_t i2 = uint16_t(u16x4Indices0 >> 32);
+        ptrdiff_t i3 = uint16_t(u16x4Indices0 >> 48);
+        ptrdiff_t i4 = uint16_t(u16x4Indices1);
+        ptrdiff_t i5 = uint16_t(u16x4Indices1 >> 16);
+        ptrdiff_t i6 = uint16_t(u16x4Indices1 >> 32);
+        ptrdiff_t i7 = uint16_t(u16x4Indices1 >> 48);
+        __m128i u16x8V = _mm_setzero_si128();
+        u16x8V = _mm_insert_epi16(u16x8V, u16Src[i0], 0);
+        u16x8V = _mm_insert_epi16(u16x8V, u16Src[i1], 1);
+        u16x8V = _mm_insert_epi16(u16x8V, u16Src[i2], 2);
+        u16x8V = _mm_insert_epi16(u16x8V, u16Src[i3], 3);
+        u16x8V = _mm_insert_epi16(u16x8V, u16Src[i4], 4);
+        u16x8V = _mm_insert_epi16(u16x8V, u16Src[i5], 5);
+        u16x8V = _mm_insert_epi16(u16x8V, u16Src[i6], 6);
+        u16x8V = _mm_insert_epi16(u16x8V, u16Src[i7], 7);
+        return u16x8V;
     }
 
 }
@@ -97,19 +90,32 @@ namespace iqo {
         );
 
     private:
+        //! dst[i] = src[i] * kBias / srcSum (src will be broken)
+        void adjustCoefs(
+            float * srcBegin, float * srcEnd,
+            float srcSum,
+            uint16_t bias,
+            uint16_t * dst
+        );
+
         void resizeYmain(
             ptrdiff_t srcSt, const uint8_t * src,
-            int32_t dstW, float * dst,
+            int32_t dstW, uint16_t * dst,
             int32_t srcOY,
-            const float * coefs
+            const uint16_t * coefs
         );
-        void resizeX(const float * src, uint8_t * dst);
-        void resizeXmain(const float * src, uint8_t * dst);
+        void resizeX(const uint16_t * src, uint8_t * dst);
+        void resizeXmain(const uint16_t * src, uint8_t * dst);
 
         enum {
+            kBiasXBit   = 15,
+            kBiasX      = 1 << kBiasXBit,
+            kBiasYBit   = 7, // it can be 8, but mulhrs is signed
+            kBiasY      = 1 << kBiasYBit,
+
             //! for SIMD
-            kVecStepX  = 16, //!< float32x4 x 4
-            kVecStepY  = 16, //!< float32x4 x 4
+            kVecStepX  = 16, //!< uint16x8 x 2
+            kVecStepY  = 16, //!< uint16x8 x 2
         };
         int32_t m_SrcW;
         int32_t m_SrcH;
@@ -121,12 +127,12 @@ namespace iqo {
         int32_t m_NumUnrolledCoordsX;
         int32_t m_TablesXWidth;
         int32_t m_NumCoordsY;
-        std::vector<float> m_TablesX_;  //!< Area table * m_NumCoordsX (unrolled)
-        float * m_TablesX;              //!< aligned
-        std::vector<float> m_TablesY;   //!< Area table * m_NumCoordsY
-        std::vector<int32_t> m_IndicesX;
-        int32_t m_WorkW;                //!< width of m_Work
-        float * m_Work;
+        std::vector<uint16_t> m_TablesX_;   //!< Area table * m_NumCoordsX (unrolled)
+        uint16_t * m_TablesX;               //!< aligned
+        std::vector<uint16_t> m_TablesY;    //!< Area table * m_NumCoordsY
+        std::vector<uint16_t> m_IndicesX;
+        int32_t m_WorkW;                    //!< width of m_Work
+        uint16_t * m_Work;
     };
 
     template<>
@@ -178,18 +184,17 @@ namespace iqo {
         m_TablesX_.resize(alignedTblXSize);
         intptr_t addrTablesX_ = intptr_t(&m_TablesX_[0]);
         intptr_t addrTablesX  = alignCeil<intptr_t>(addrTablesX_, sizeof(*m_TablesX) * kVecStepX);
-        m_TablesX = reinterpret_cast<float *>(addrTablesX);
+        m_TablesX = reinterpret_cast<uint16_t *>(addrTablesX);
         size_t tblYSize = size_t(m_NumCoefsY) * m_NumCoordsY;
         m_TablesY.reserve(tblYSize);
         m_TablesY.resize(tblYSize);
 
-        std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
+        std::vector<uint16_t> tablesX(m_NumCoefsX * m_NumCoordsX);
+        std::vector<float>    coefsX(m_NumCoefsX);
         for ( int32_t dstX = 0; dstX < m_NumCoordsX; ++dstX ) {
-            float * table = &tablesX[dstX * m_NumCoefsX];
-            float sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, table);
-            for ( int32_t i = 0; i < m_NumCoefsX; ++i ) {
-                table[i] /= sumCoefs;
-            }
+            uint16_t * table = &tablesX[dstX * m_NumCoefsX];
+            float sumCoefs = setAreaTable(rSrcW, rDstW, dstX, m_NumCoefsX, &coefsX[0]);
+            adjustCoefs(&coefsX[0], &coefsX[m_NumCoefsX], sumCoefs, kBiasX, &table[0]);
         }
 
         // unroll X coefs
@@ -222,18 +227,17 @@ namespace iqo {
             }
         }
 
+        std::vector<float>    coefsY(m_NumCoefsY);
         for ( int32_t dstY = 0; dstY < m_NumCoordsY; ++dstY ) {
-            float * table = &m_TablesY[dstY * m_NumCoefsY];
-            float sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, table);
-            for ( int32_t i = 0; i < m_NumCoefsY; ++i ) {
-                table[i] /= sumCoefs;
-            }
+            uint16_t * table = &m_TablesY[dstY * m_NumCoefsY];
+            float sumCoefs = setAreaTable(rSrcH, rDstH, dstY, m_NumCoefsY, &coefsY[0]);
+            adjustCoefs(&coefsY[0], &coefsY[m_NumCoefsY], sumCoefs, kBiasY, &table[0]);
         }
 
         // allocate workspace
         m_WorkW = alignCeil<int32_t>(m_SrcW, kVecStepY);
         int32_t workSize = m_WorkW * HWCap::getNumberOfProcs();
-        m_Work = alignedAlloc<float>(workSize, sizeof(*m_Work) * kVecStepY);
+        m_Work = alignedAlloc<uint16_t>(workSize, sizeof(*m_Work) * kVecStepY);
 
         // calc indices
         int32_t alignedDstW = alignCeil<int32_t>(m_DstW, kVecStepX);
@@ -241,8 +245,36 @@ namespace iqo {
         m_IndicesX.resize(alignedDstW);
         for ( int32_t dstX = 0; dstX < alignedDstW; ++dstX ) {
             //      srcOX = floor(dstX / scale)
-            int32_t srcOX = int32_t(int64_t(dstX) * rSrcW / rDstW);
+            uint16_t srcOX = uint16_t(int64_t(dstX) * rSrcW / rDstW);
             m_IndicesX[dstX] = srcOX;
+        }
+    }
+
+    void AreaResizerImpl<ArchSSE4_1>::adjustCoefs(
+        float * __restrict srcBegin, float * __restrict srcEnd,
+        float srcSum,
+        uint16_t bias,
+        uint16_t * __restrict dst)
+    {
+        const int k1_0 = bias;
+        size_t numCoefs = srcEnd - srcBegin;
+        int dstSum = 0;
+
+        for ( size_t i = 0; i < numCoefs; ++i ) {
+            dst[i] = uint16_t(round(srcBegin[i] * bias / srcSum));
+            dstSum += dst[i];
+        }
+        while ( dstSum < k1_0 ) {
+            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[numCoefs]));
+            dst[i]++;
+            srcBegin[i] = 0;
+            dstSum++;
+        }
+        while ( dstSum > k1_0 ) {
+            size_t i = std::distance(&srcBegin[0], std::max_element(&srcBegin[0], &srcBegin[numCoefs]));
+            dst[i]--;
+            srcBegin[i] = 0;
+            dstSum--;
         }
     }
 
@@ -257,7 +289,7 @@ namespace iqo {
         if ( srcH == dstH ) {
 #pragma omp parallel for
             for ( int32_t y = 0; y < srcH; ++y ) {
-                float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
+                uint16_t * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
                 for ( int32_t x = 0; x < srcW; ++x ) {
                     work[x] = src[srcSt * y + x];
                 }
@@ -266,14 +298,14 @@ namespace iqo {
             return;
         }
 
-        const float * tablesY = &m_TablesY[0];
+        const uint16_t * tablesY = &m_TablesY[0];
 
         // main loop
 #pragma omp parallel for
         for ( int32_t dstY = 0; dstY < dstH; ++dstY ) {
-            float * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
+            uint16_t * work = &m_Work[HWCap::getThreadNumber() * ptrdiff_t(m_WorkW)];
             int32_t srcOY = int32_t(int64_t(dstY) * srcH / dstH);
-            const float * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
+            const uint16_t * coefs = &tablesY[dstY % m_NumCoordsY * ptrdiff_t(m_NumCoefsY)];
             resizeYmain(
                 srcSt, &src[0],
                 srcW, work,
@@ -292,64 +324,50 @@ namespace iqo {
     //! @param coefs  The coefficients
     void AreaResizerImpl<ArchSSE4_1>::resizeYmain(
         ptrdiff_t srcSt, const uint8_t * src,
-        int32_t dstW, float * __restrict dst,
+        int32_t dstW, uint16_t * __restrict dst,
         int32_t srcOY,
-        const float * coefs
+        const uint16_t * coefs
     ) {
         int32_t numCoefsY = m_NumCoefsY;
         int32_t vecLen = alignFloor<int32_t>(dstW, kVecStepY);
 
 #if defined(__GNUC__)
-        dst = reinterpret_cast<float *>(__builtin_assume_aligned(dst, sizeof(*dst)*kVecStepY));
+        dst = reinterpret_cast<uint16_t *>(__builtin_assume_aligned(dst, sizeof(*dst)*kVecStepY));
 #endif
 
         for ( int32_t dstX = 0; dstX < vecLen; dstX += kVecStepY ) {
             //     nume         = 0;
-            __m128 f32x4Nume0   = _mm_setzero_ps();
-            __m128 f32x4Nume1   = _mm_setzero_ps();
-            __m128 f32x4Nume2   = _mm_setzero_ps();
-            __m128 f32x4Nume3   = _mm_setzero_ps();
+            __m128i u16x8Nume0   = _mm_setzero_si128();
+            __m128i u16x8Nume1   = _mm_setzero_si128();
 
             for ( int32_t i = 0; i < numCoefsY; ++i ) {
                 int32_t srcY        = srcOY + i;
 
                 //      coef        = coefs[i];
-                __m128  f32x4Coef   = _mm_set1_ps(coefs[i]);
+                __m128i u16x8Coef   = _mm_set1_epi16(coefs[i]);
 
                 //      nume       += src[dstX + srcSt*srcY] * coef;
                 __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
                 _mm_prefetch((const char *)&src[dstX + srcSt*(srcY + numCoefsY)], _MM_HINT_T2);
-                __m128i u8x4Src0    = u8x16Src;
-                __m128i u8x4Src1    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 3, 3, 1));
-                __m128i u8x4Src2    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 3, 3, 2));
-                __m128i u8x4Src3    = _mm_shuffle_epi32(u8x16Src, _MM_SHUFFLE(3, 3, 3, 3));
-                __m128  f32x4Src0   = _mm_cvtepi32_ps(_mm_cvtepu8_epi32(u8x4Src0));
-                __m128  f32x4Src1   = _mm_cvtepi32_ps(_mm_cvtepu8_epi32(u8x4Src1));
-                __m128  f32x4Src2   = _mm_cvtepi32_ps(_mm_cvtepu8_epi32(u8x4Src2));
-                __m128  f32x4Src3   = _mm_cvtepi32_ps(_mm_cvtepu8_epi32(u8x4Src3));
-                f32x4Nume0 = _mm_add_ps(_mm_mul_ps(f32x4Src0, f32x4Coef), f32x4Nume0);
-                f32x4Nume1 = _mm_add_ps(_mm_mul_ps(f32x4Src1, f32x4Coef), f32x4Nume1);
-                f32x4Nume2 = _mm_add_ps(_mm_mul_ps(f32x4Src2, f32x4Coef), f32x4Nume2);
-                f32x4Nume3 = _mm_add_ps(_mm_mul_ps(f32x4Src3, f32x4Coef), f32x4Nume3);
+                __m128i u16x8Src0   = _mm_unpacklo_epi8(u8x16Src, _mm_setzero_si128());
+                __m128i u16x8Src1   = _mm_unpackhi_epi8(u8x16Src, _mm_setzero_si128());
+                u16x8Nume0 = _mm_add_epi16(_mm_mullo_epi16(u16x8Src0, u16x8Coef), u16x8Nume0);
+                u16x8Nume1 = _mm_add_epi16(_mm_mullo_epi16(u16x8Src1, u16x8Coef), u16x8Nume1);
             }
 
             // dst[dstX] = nume;
-            __m128 f32x4Dst0 = f32x4Nume0;
-            __m128 f32x4Dst1 = f32x4Nume1;
-            __m128 f32x4Dst2 = f32x4Nume2;
-            __m128 f32x4Dst3 = f32x4Nume3;
-            _mm_store_ps(&dst[dstX +  0], f32x4Dst0);
-            _mm_store_ps(&dst[dstX +  4], f32x4Dst1);
-            _mm_store_ps(&dst[dstX +  8], f32x4Dst2);
-            _mm_store_ps(&dst[dstX + 12], f32x4Dst3);
+            __m128i u16x8Dst0 = u16x8Nume0;
+            __m128i u16x8Dst1 = u16x8Nume1;
+            _mm_store_si128((__m128i *)&dst[dstX + 0], u16x8Dst0);
+            _mm_store_si128((__m128i *)&dst[dstX + 8], u16x8Dst1);
         }
 
         for ( int32_t dstX = vecLen; dstX < dstW; dstX++ ) {
-            float nume = 0;
+            uint16_t nume = 0;
 
             for ( int32_t i = 0; i < numCoefsY; ++i ) {
-                int32_t srcY = srcOY + i;
-                float   coef = coefs[i];
+                int32_t  srcY = srcOY + i;
+                uint16_t coef = coefs[i];
                 nume += src[dstX + srcSt * srcY] * coef;
             }
 
@@ -357,12 +375,12 @@ namespace iqo {
         }
     }
 
-    void AreaResizerImpl<ArchSSE4_1>::resizeX(const float * src, uint8_t * __restrict dst)
+    void AreaResizerImpl<ArchSSE4_1>::resizeX(const uint16_t * src, uint8_t * __restrict dst)
     {
         if ( m_SrcW == m_DstW ) {
             int32_t dstW = m_DstW;
             for ( int32_t dstX = 0; dstX < dstW; dstX++ ) {
-                dst[dstX] = cvt_roundss_su8(src[dstX]);
+                dst[dstX] = cvt_roundu16q7_su8(src[dstX]);
             }
             return;
         }
@@ -374,10 +392,10 @@ namespace iqo {
     //!
     //! @param src    A row of source
     //! @param dst    A row of destination
-    void AreaResizerImpl<ArchSSE4_1>::resizeXmain(const float * src, uint8_t * __restrict dst)
+    void AreaResizerImpl<ArchSSE4_1>::resizeXmain(const uint16_t * src, uint8_t * __restrict dst)
     {
-        const float * coefs = &m_TablesX[0];
-        const int32_t * indices = &m_IndicesX[0];
+        const uint16_t * coefs = &m_TablesX[0];
+        const uint16_t * indices = &m_IndicesX[0];
         ptrdiff_t tableWidth = ptrdiff_t(m_TablesXWidth);
         ptrdiff_t tableSize = tableWidth * m_NumUnrolledCoordsX;
         int32_t numCoefsX = m_NumCoefsX;
@@ -387,50 +405,35 @@ namespace iqo {
         ptrdiff_t iCoef = 0;
         for ( int32_t dstX = 0; dstX < vecLen; dstX += kVecStepX ) {
             //      nume        = 0;
-            __m128  f32x4Nume0  = _mm_setzero_ps();
-            __m128  f32x4Nume1  = _mm_setzero_ps();
-            __m128  f32x4Nume2  = _mm_setzero_ps();
-            __m128  f32x4Nume3  = _mm_setzero_ps();
+            __m128i u16x8Nume0  = _mm_setzero_si128();
+            __m128i u16x8Nume1  = _mm_setzero_si128();
             //      srcOX       = floor(dstX / scale);
-            __m128i s32x4SrcX0  = _mm_loadu_si128((const __m128i*)&indices[dstX +  0]);
-            __m128i s32x4SrcX1  = _mm_loadu_si128((const __m128i*)&indices[dstX +  4]);
-            __m128i s32x4SrcX2  = _mm_loadu_si128((const __m128i*)&indices[dstX +  8]);
-            __m128i s32x4SrcX3  = _mm_loadu_si128((const __m128i*)&indices[dstX + 12]);
+            __m128i u16x8SrcX0  = _mm_loadu_si128((const __m128i*)&indices[dstX + 0]);
+            __m128i u16x8SrcX1  = _mm_loadu_si128((const __m128i*)&indices[dstX + 8]);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 //      nume       += src[srcX] * coefs[iCoef];
-                __m128  f32x4Src0   = gather_ps(src, s32x4SrcX0);
-                __m128  f32x4Src1   = gather_ps(src, s32x4SrcX1);
-                __m128  f32x4Src2   = gather_ps(src, s32x4SrcX2);
-                __m128  f32x4Src3   = gather_ps(src, s32x4SrcX3);
-                __m128  f32x4Coefs0 = _mm_load_ps(&coefs[iCoef +  0]);
-                __m128  f32x4Coefs1 = _mm_load_ps(&coefs[iCoef +  4]);
-                __m128  f32x4Coefs2 = _mm_load_ps(&coefs[iCoef +  8]);
-                __m128  f32x4Coefs3 = _mm_load_ps(&coefs[iCoef + 12]);
-                __m128  f32x4iNume0 = _mm_mul_ps(f32x4Src0, f32x4Coefs0);
-                __m128  f32x4iNume1 = _mm_mul_ps(f32x4Src1, f32x4Coefs1);
-                __m128  f32x4iNume2 = _mm_mul_ps(f32x4Src2, f32x4Coefs2);
-                __m128  f32x4iNume3 = _mm_mul_ps(f32x4Src3, f32x4Coefs3);
-                f32x4Nume0 = _mm_add_ps(f32x4Nume0, f32x4iNume0);
-                f32x4Nume1 = _mm_add_ps(f32x4Nume1, f32x4iNume1);
-                f32x4Nume2 = _mm_add_ps(f32x4Nume2, f32x4iNume2);
-                f32x4Nume3 = _mm_add_ps(f32x4Nume3, f32x4iNume3);
+                __m128i u16x8Src0   = gather_epu16(src, u16x8SrcX0);
+                __m128i u16x8Src1   = gather_epu16(src, u16x8SrcX1);
+                __m128i u16x8Coefs0 = _mm_load_si128((const __m128i *)&coefs[iCoef + 0]);
+                __m128i u16x8Coefs1 = _mm_load_si128((const __m128i *)&coefs[iCoef + 8]);
+                //                    (src*kBiasY * coef*kBiasX) / kBiasX
+                __m128i u16x8iNume0 = _mm_mulhrs_epi16(u16x8Src0, u16x8Coefs0);
+                __m128i u16x8iNume1 = _mm_mulhrs_epi16(u16x8Src1, u16x8Coefs1);
+                u16x8Nume0 = _mm_add_epi16(u16x8Nume0, u16x8iNume0);
+                u16x8Nume1 = _mm_add_epi16(u16x8Nume1, u16x8iNume1);
 
                 //      srcX        = srcOX + i;
-                const __m128i k1 = _mm_set1_epi32(1);
-                s32x4SrcX0 = _mm_add_epi32(s32x4SrcX0, k1);
-                s32x4SrcX1 = _mm_add_epi32(s32x4SrcX1, k1);
-                s32x4SrcX2 = _mm_add_epi32(s32x4SrcX2, k1);
-                s32x4SrcX3 = _mm_add_epi32(s32x4SrcX3, k1);
+                const __m128i k1 = _mm_set1_epi16(1);
+                u16x8SrcX0 = _mm_add_epi16(u16x8SrcX0, k1);
+                u16x8SrcX1 = _mm_add_epi16(u16x8SrcX1, k1);
 
                 iCoef += kVecStepX;
             }
 
             // dst[dstX] = clamp<int>(0, 255, round(nume));
-            __m128i u8x8Dst0 = cvt_roundps_epu8(f32x4Nume0, f32x4Nume1);
-            __m128i u8x8Dst1 = cvt_roundps_epu8(f32x4Nume2, f32x4Nume3);
-            __m128i u8x16Dst = _mm_unpacklo_epi64(u8x8Dst0, u8x8Dst1);
-            _mm_storeu_si128((__m128i*)&dst[dstX], u8x16Dst);
+            __m128i u8x16Dst = cvt_roundu16q7_epu8(u16x8Nume0, u16x8Nume1);
+            _mm_storeu_si128((__m128i *)&dst[dstX], u8x16Dst);
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
@@ -440,18 +443,18 @@ namespace iqo {
 
         for ( int32_t dstX = vecLen; dstX < dstW; ++dstX ) {
             int32_t srcOX = indices[dstX];
-            float sum = 0;
+            uint16_t sum = 0;
 
             // calc index of coefs from unrolled table
             iCoef = (dstX % kVecStepX) + (dstX / kVecStepX % m_NumUnrolledCoordsX * tableWidth);
 
             for ( int32_t i = 0; i < numCoefsX; ++i ) {
                 int32_t srcX = srcOX + i;
-                sum   += src[srcX] * coefs[iCoef];
+                sum   += (src[srcX] * coefs[iCoef]) / kBiasX;
                 iCoef += kVecStepX;
             }
 
-            dst[dstX] = cvt_roundss_su8(sum);
+            dst[dstX] = cvt_roundu16q7_su8(sum);
         }
     }
 
