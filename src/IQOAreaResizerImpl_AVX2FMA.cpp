@@ -421,13 +421,13 @@ namespace iqo {
                 __m256i s32x8SrcX3  = _mm256_add_epi32(s32x8SrcOX3, s32x8Offset);
 
                 //      nume           += src[srcX] * coefs[iCoef];
-                __m256  u16x16Src0      = i32gather_epu16(src, s32x8SrcX0, s32x8SrcX1);
-                __m256  u16x16Src1      = i32gather_epu16(src, s32x8SrcX2, s32x8SrcX3);
-                __m256  u16x16Coefs0    = _mm256_load_si256((const __m256i *)&coefs[iCoef +  0]);
-                __m256  u16x16Coefs1    = _mm256_load_si256((const __m256i *)&coefs[iCoef + 16]);
+                __m256i u16x16Src0      = i32gather_epu16(src, s32x8SrcX0, s32x8SrcX1);
+                __m256i u16x16Src1      = i32gather_epu16(src, s32x8SrcX2, s32x8SrcX3);
+                __m256i u16x16Coefs0    = _mm256_load_si256((const __m256i *)&coefs[iCoef +  0]);
+                __m256i u16x16Coefs1    = _mm256_load_si256((const __m256i *)&coefs[iCoef + 16]);
                 //                        (src*kBiasY * coef*kBiasX) / kBiasX
-                __m256  u16x16iNume0    = _mm256_mulhrs_epi16(u16x16Src0, u16x16Coefs0);
-                __m256  u16x16iNume1    = _mm256_mulhrs_epi16(u16x16Src1, u16x16Coefs1);
+                __m256i u16x16iNume0    = _mm256_mulhrs_epi16(u16x16Src0, u16x16Coefs0);
+                __m256i u16x16iNume1    = _mm256_mulhrs_epi16(u16x16Src1, u16x16Coefs1);
                 u16x16Nume0 = _mm256_add_epi16(u16x16iNume0, u16x16Nume0);
                 u16x16Nume1 = _mm256_add_epi16(u16x16iNume1, u16x16Nume1);
 
