@@ -25,15 +25,6 @@ namespace {
         return uint8_t((v + k0_5) >> 7);
     }
 
-    /*
-    //! (uint8_t)min(255, max(0, round(v))) in Q8
-    uint8_t cvt_roundu16q8_su8(uint16_t v)
-    {
-        uint16_t k0_5 = 1 << 7; // 0.5 in Q8
-        return uint8_t((v + k0_5) >> 8);
-    }
-    */
-
     //! (uint8_t)min(255, max(0, round(v))) in Q7
     __m256i cvt_roundu16q7_epu8(__m256i lo, __m256i hi)
     {
@@ -48,22 +39,6 @@ namespace {
         return _mm256_permute4x64_epi64(u8x32Perm, _MM_SHUFFLE(3, 1, 2, 0));
     }
 
-    /*
-    //! (uint8_t)min(255, max(0, round(v))) in Q8
-    __m256i cvt_roundu16q8_epu8(__m256i lo, __m256i hi)
-    {
-        __m256i u16x16k0_5 = _mm256_set1_epi16(1 << 7); // 0.5 in Q8
-
-        // v = (x + k0_5) >> 8
-        __m256i u16x16v0 = _mm256_srli_epi16(_mm256_add_epi16(lo, u16x16k0_5), 8);
-        __m256i u16x16v1 = _mm256_srli_epi16(_mm256_add_epi16(hi, u16x16k0_5), 8);
-
-        // Perm = (uint8_t)v
-        __m256i u8x32Perm = _mm256_packus_epi16(u16x16v0, u16x16v1);
-        return _mm256_permute4x64_epi64(u8x32Perm, _MM_SHUFFLE(3, 1, 2, 0));
-    }
-    */
-
     //! returns { a.i128[I0], b.i128[I1] };
     template<int I0, int I1>
     __m256i permute2x128(__m256i a, __m256i b)
@@ -71,33 +46,6 @@ namespace {
         return _mm256_permute2x128_si256(a, b, (I1 << 4) | I0);
     }
 
-    /*
-    __m256i i32gather_epu16(const uint16_t * src, __m256i s32x8i0, __m256i s32x8i1)
-    {
-        const int32_t * p = reinterpret_cast<const int32_t *>(src);
-
-        // 0x80 means to clear to zero
-        __m256i u8x32table32to16L = _mm256_set_epi8(
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // clear
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00, // u16 {6, 4, 2, 0}
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // clear
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00  // u16 {6, 4, 2, 0}
-        );
-        __m256i u8x32table32to16H = _mm256_set_epi8(
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00, // u16 {6, 4, 2, 0}
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // clear
-            0x0D, 0x0C, 0x09, 0x08, 0x05, 0x04, 0x01, 0x00, // u16 {6, 4, 2, 0}
-            0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80  // clear
-        );
-        __m256i s32x8SrcL   = _mm256_i32gather_epi32(p, s32x8i0, 2); // higher 16bit are broken
-        __m256i s32x8SrcH   = _mm256_i32gather_epi32(p, s32x8i1, 2);
-        __m256i s16x8ShufL  = _mm256_shuffle_epi8(s32x8SrcL, u8x32table32to16L);    // X,1,X,0
-        __m256i s16x8ShufH  = _mm256_shuffle_epi8(s32x8SrcH, u8x32table32to16H);    // 3,X,2,X
-        __m256i s16x16Shuf  = _mm256_or_si256(s16x8ShufL, s16x8ShufH);              // 3,1,2,0
-        __m256i s16x16Src   = _mm256_permute4x64_epi64(s16x16Shuf, _MM_SHUFFLE(3, 1, 2, 0));
-        return s16x16Src;
-    }
-    */
     __m256i i32gather_epu16(const uint16_t * src, __m256i s32x8i0, __m256i s32x8i1)
     {
         const int32_t * p = reinterpret_cast<const int32_t *>(src);
@@ -325,7 +273,6 @@ namespace iqo {
             dstSum--;
         }
     }
-
 
     void AreaResizerImpl<ArchAVX2FMA>::resize(
         size_t srcSt, const uint8_t * src,
