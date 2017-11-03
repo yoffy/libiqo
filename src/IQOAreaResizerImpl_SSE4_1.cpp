@@ -349,7 +349,7 @@ namespace iqo {
                 //      nume       += src[dstX + srcSt*srcY] * coef;
                 __m128i u8x16Src    = _mm_loadu_si128((const __m128i *)&src[dstX + srcSt*srcY]);
                 _mm_prefetch((const char *)&src[dstX + srcSt*(srcY + numCoefsY)], _MM_HINT_T2);
-                __m128i u16x8Src0   = _mm_unpacklo_epi8(u8x16Src, _mm_setzero_si128());
+                __m128i u16x8Src0   = _mm_cvtepu8_epi16(u8x16Src);
                 __m128i u16x8Src1   = _mm_unpackhi_epi8(u8x16Src, _mm_setzero_si128());
                 u16x8Nume0 = _mm_add_epi16(_mm_mullo_epi16(u16x8Src0, u16x8Coef), u16x8Nume0);
                 u16x8Nume1 = _mm_add_epi16(_mm_mullo_epi16(u16x8Src1, u16x8Coef), u16x8Nume1);
