@@ -334,6 +334,9 @@ namespace iqo {
 
                 //          nume       += src[dstX + srcSt*srcY] * coef;
                 uint8x16_t  u8x16Src    = vld1q_u8(&src[dstX + srcSt*srcY]);
+#if defined(__GNUC__)
+                __builtin_prefetch(&src[dstX + srcSt*(srcY + numCoefsY)], 0, 2); // read, L2
+#endif
                 int16x8_t   s16x8Src0   = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(u8x16Src)));
                 int16x8_t   s16x8Src1   = vreinterpretq_s16_u16(vmovl_u8(vget_high_u8(u8x16Src)));
                 s16x8Nume0 = vmlaq_s16(s16x8Nume0, s16x8Src0, s16x8Coef);

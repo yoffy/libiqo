@@ -443,6 +443,9 @@ namespace iqo {
 
                 //          nume       += src[dstX + srcSt*srcY] * coef;
                 uint8x16_t  u8x16Src    = vld1q_u8(&src[dstX + srcSt*srcY]);
+#if defined(__GNUC__)
+                __builtin_prefetch(&src[dstX + srcSt*(srcY + numCoefsY)], 0, 2); // read, L2
+#endif
                 uint16x8_t  u16x8Src0   = vmovl_u8(vget_low_u8(u8x16Src));
                 uint16x8_t  u16x8Src1   = vmovl_u8(vget_high_u8(u8x16Src));
                 uint32x4_t  u32x4Src0   = vmovl_u16(vget_low_u16(u16x8Src0));
