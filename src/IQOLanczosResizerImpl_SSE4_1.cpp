@@ -26,8 +26,8 @@ namespace {
         // separate loading and insertion for performance (33% faster on Cherry Trail)
         __asm__ (
             "insertps $%c[field], %[src], %[dst]  \n\t"
-            : [dst]"=x"(f32x4Dst)
-            : [dst]"x"(f32x4Dst), [src]"x"(f32x4Src), [field]"i"(dstField << 4)
+            : [dst]"+x"(f32x4Dst)
+            : [src]"x"(f32x4Src), [field]"i"(dstField << 4)
             :
         );
         return f32x4Dst;
