@@ -225,7 +225,7 @@ namespace iqo {
         int32_t rSrcH = m_SrcH / gcdH;
         int32_t rDstH = m_DstH / gcdH;
         int64_t alignedW  = alignCeil<int32_t>(m_DstW, kVecStepX);
-        int64_t unrolledW = lcm(rDstW, kVecStepX);
+        int64_t unrolledW = lcm(m_NumCoefsX*rDstW, kVecStepX);
         m_NumCoordsX = rDstW;
         m_NumUnrolledCoordsX = int32_t(std::min(alignedW, unrolledW));
         m_NumUnrolledCoordsX /= kVecStepX;
@@ -242,23 +242,19 @@ namespace iqo {
         m_TablesY.resize(tblYSize);
 
         // X coefs
-        std::vector<float> fTablesX(rDstW);
-        std::<uint16_t> tablesX(rDstW);
-        setLinearTable(rSrcW, rDstW, &fTablesX[0]);
-        adjustCoefs(&fTablesX[0], &fTablesX[rDstW], kBiasX, &tablesX[0]);
+        std::vector<float> tablesX(m_NumCoefsX * m_NumCoordsX);
+        setLinearTable(rSrcW, rDstW, &tablesX[0]);
 
         // unroll X coefs
         //
-        //      srcX: A B C    (upto m_NumCoordsX)
-        //    coef #: 0 1 2 3
-        //   tablesX: A0A1A2A3
-        //            B0B1B2B3
-        //            C0C1C2C3
+        //      srcX: A a B b C c    (upto m_NumCoefsX*m_NumCoordsX)
+        //    coef #: 0 1
+        //   tablesX: A0a1
+        //            B0b1
+        //            C0c1
         //
-        //      srcX: ABCA BCAB CABC (upto m_NumUnrolledCoordsX; unroll to kVecStepX)
-        // m_TablesX: A0B0C0A0 .. A3B3C3A3
-        //            B0C0A0B0 .. B3C3A3B3
-        //            C0A0B0C0 .. C3A3B3C3
+        //      srcX: AaBb CcAa BbCc (upto m_NumUnrolledCoordsX; unroll to kVecStepX)
+        // m_TablesX: A0a1B0b1 C0c1A0a1 B0b1C0c1
         //
         // other cases
         //
@@ -566,14 +562,14 @@ namespace iqo {
             __m256i u32x8Nume2      = _mm256_madd_epi16(u16x16Src2, u16x16Coefs2);
             __m256i u32x8Nume3      = _mm256_madd_epi16(u16x16Src3, u16x16Coefs3);
 
-            //      dst             = clamp<int>(0, 255, round(uint16_t(nume)));
+            //      dst             = clamp(0, 255, round(nume));
             __m256i u8x32Dst        = cvt_roundu32q16_epu8(
                 u32x8Nume0, u32x8Nume1, u32x8Nume2, u32x8Nume3
             );
             _mm256_storeu_si256((__m256i*)&dst[dstX], u8x32Dst);
 
 #warning todo
-            iCoef += kVecStepX * 2;
+            iCoef += kVecStepX * m_NumCoefsX;
 
             // iCoef = dstX % tableSize;
             if ( iCoef == tableSize ) {
